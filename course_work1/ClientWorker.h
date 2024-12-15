@@ -29,6 +29,7 @@ public:
     void sendPublicKey();
     void receivePublicKey();
     void receiveMessage();
+
     // void sendUsername();
     // void initializeClientData(const QString &username);
 
@@ -40,6 +41,9 @@ signals:
     void publicKeyAcknowledged();
     void messageReceived(const QString &sender, const QString &message);
     void errorOccurred(const QString &error);
+
+    void clientStatusChanged(const QString &message);
+    void publicKeyStatus(const QString &message);
 
 private slots:
     void onConnected();
@@ -60,7 +64,10 @@ private:
     CryptoPP::RSA::PublicKey otherPublicKey;
     CryptoPP::SecByteBlock aesKey;
     QMutex socketMutex;
+
+    QMap<QString, CryptoPP::RSA::PublicKey> receivedPublicKeys;
     void connectToServer();
+    void processPublicKey(const QByteArray &payload);
 
 };
 

@@ -112,6 +112,7 @@ void ClientWorker::sendPublicKey()
 {
     if(socket && socket->state() == QAbstractSocket::ConnectedState)
     {
+        emit publicKeyStatus(QString("%1 connected, sending public key to server. Waiting for another client to exchange public key.").arg(username));
         std::string pubKeyStr;
         StringSink sink(pubKeyStr);
         publicKey.Save(sink);
@@ -126,9 +127,9 @@ void ClientWorker::sendPublicKey()
         quint8 messageType = static_cast<quint8>(MessageType::PUBLIC_KEY);
         stream << messageLength << messageType;
         message.append(keyData);
+        qDebug() << "Size of key data: " << keyData.size();
 
         qint64 bytesWritten = socket->write(message);
-        socket->write(message);
         socket->flush();
 
         if(bytesWritten == -1)
@@ -139,13 +140,14 @@ void ClientWorker::sendPublicKey()
 
         qDebug() << "Send public Key to server";
 
-        if(socket->waitForReadyRead(3000))
+        if(!socket->waitForReadyRead(10000))
         {
-            handleConnection();
+            emit errorOccurred("No ACK from server for public key(timeout");
+
         }
         else
         {
-            emit errorOccurred("No ACK from server for public key");
+            handleConnection();
         }
 
     }
@@ -162,89 +164,52 @@ void ClientWorker::sendPublicKey()
 
 void ClientWorker::receivePublicKey()
 {
-    if(!socket || socket->state() != QAbstractSocket::ConnectedState)
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState)
     {
-        emit errorOccurred ("Socket in not connected. Cannot receive public key");
+        emit errorOccurred("Socket is not connected. Cannot receive public key");
         return;
     }
 
     QDataStream in(socket);
     in.setByteOrder(QDataStream::LittleEndian);
 
-    const int maxAttempts = 5;
-    int attempt = 0;
+    quint32 messageLength;
+    quint8 messageType;
 
-
-    while(socket->bytesAvailable() < static_cast<int>(sizeof(quint32) + sizeof(quint8)) && attempt < maxAttempts)
-    {
-        // emit errorOccurred("Not enough data available to proccess pub key");
-        if(!socket->waitForReadyRead(1000))
-        {
-            attempt++;
-            qDebug() << "Attempt" << attempt << ": Waiting for more data to read public key header...";
-        }
-
-    }
-
-
-    if (attempt == maxAttempts)
+    // Проверяем заголовок
+    if (socket->bytesAvailable() < sizeof(quint32) + sizeof(quint8) || !socket->waitForReadyRead(3000))
     {
         emit errorOccurred("Failed to receive public key header within timeout.");
         return;
     }
 
-    quint32 messageLength;
-    quint8 messageType;
-
     in >> messageLength >> messageType;
 
-    if(messageType != static_cast<quint8>(MessageType::PUBLIC_KEY_RECEIVED))
+    if (messageType != static_cast<quint8>(MessageType::PUBLIC_KEY))
     {
-        emit errorOccurred("Unexpected message type. Expected PUBLIC_KEY_RECEIVED");
+        emit errorOccurred("Unexpected message type. Expected PUBLIC_KEY.");
         return;
     }
 
-    int expectedPayloadSize = messageLength - sizeof(quint8);
-    attempt = 0;
-    while (socket->bytesAvailable() < expectedPayloadSize && attempt < maxAttempts)
-    {
-        if (!socket->waitForReadyRead(1000)) // Ждем данные в течение 1 секунды
-        {
-            attempt++;
-            qDebug() << "Attempt" << attempt << ": Waiting for more data to read the full public key payload...";
-        }
-    }
-
-    if (attempt == maxAttempts)
-    {
-        emit errorOccurred("Failed to receive complete public key payload within timeout.");
-        return;
-    }
-
-    QByteArray keyDataBase64 = socket->read(expectedPayloadSize);
-    if(keyDataBase64.size() < expectedPayloadSize)
-    {
-        emit errorOccurred("Failed to receive complete public key payload");
-        return;
-    }
-
+    QByteArray keyDataBase64 = socket->read(messageLength - sizeof(quint8));
     QByteArray keyData = QByteArray::fromBase64(keyDataBase64);
-
 
     try
     {
-        StringSource source (reinterpret_cast<const byte*> (keyData.data()), keyData.size(), true );
+        qDebug() << "Key data size: " << keyData.size();
+        StringSource source(reinterpret_cast<const byte*>(keyData.data()), keyData.size(), true);
         otherPublicKey.Load(source);
-        qDebug() << "Received public key of size: " << keyData.size();
-        emit publicKeyAcknowledged();
+        qDebug() << "Received and loaded public key of size: " << keyData.size();
     }
     catch (const Exception &e)
     {
-        emit errorOccurred(QString("Failed to load public Key: %1").arg(e.what()));
+        emit errorOccurred(QString("Failed to load public key: %1").arg(e.what()));
         return;
     }
-    emit publicKeyAcknowledged();
+
+
 }
+
 
 
 
@@ -366,20 +331,28 @@ void ClientWorker::handleConnection()
 
         MessageType messageType = static_cast<MessageType>(messageTypeRaw);
 
-        // if(socket->bytesAvailable() < messageLength - sizeof(quint8))
-        // {
-        //     qDebug() << "Incomplete message received. Waiting for more data....";
-        // }
+        if(socket->bytesAvailable() < messageLength - sizeof(quint8))
+        {
+            qDebug() << "Incomplete message received. Waiting for more data.";
+            return;
+        }
         QByteArray payload = socket->read(messageLength - sizeof(quint8));
+
         switch(messageType)
         {
         case MessageType::PUBLIC_KEY_RECEIVED:
-            receivePublicKey();
+            // receivePublicKey();
+            emit publicKeyAcknowledged();
+            qDebug() << "ACK for public key received.";
             break;
 
         case MessageType::USERNAME_READY:
             sendPublicKey();
             break;
+
+        case MessageType::PUBLIC_KEY:
+            processPublicKey(payload);
+
 
         case MessageType::DATA_MESSAGE:
             receiveMessage();
@@ -449,6 +422,49 @@ void ClientWorker::receiveMessage()
         emit messageReceived("OtherClient: ", decryptedMessage) ;
     }
 
+}
+
+void ClientWorker::processPublicKey(const QByteArray &payload)
+{
+    QDataStream in(payload);
+    in.setByteOrder(QDataStream::LittleEndian);
+
+    while (!in.atEnd())
+    {
+        quint32 clientIDSize, publicKeySize;
+        in >> clientIDSize;
+
+        QByteArray clientIDBytes(clientIDSize, 0);
+        in.readRawData(clientIDBytes.data(), clientIDSize);
+        QString clientID = QString::fromUtf8(clientIDBytes);
+
+        in >> publicKeySize;
+        QByteArray publicKeyBytes(publicKeySize, 0);
+        in.readRawData(publicKeyBytes.data(), publicKeySize);
+
+        qDebug() << "Received public key for client:" << clientID
+                 << ", Key size:" << publicKeyBytes.size();
+
+        try
+        {
+            CryptoPP::RSA::PublicKey otherClientKey;
+
+            // Properly load the key using ByteQueue
+            CryptoPP::ByteQueue byteQueue;
+            byteQueue.Put(reinterpret_cast<const byte*>(publicKeyBytes.data()), publicKeyBytes.size());
+            byteQueue.MessageEnd();
+
+            otherClientKey.Load(byteQueue); // Correctly call the Load method
+
+            // Store the key for later use
+            receivedPublicKeys[clientID] = otherClientKey;
+        }
+        catch (const CryptoPP::Exception &e)
+        {
+            qDebug() << "Failed to process public key for client:" << clientID
+                     << ", Error:" << e.what();
+        }
+    }
 }
 
 
