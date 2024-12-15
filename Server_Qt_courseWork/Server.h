@@ -12,7 +12,23 @@ class Server : public QTcpServer
 
 public:
     explicit Server(QObject *parent = nullptr);
+
+
     void removeClient(QTcpSocket *client);
+
+    void addPublicKey(const QString &clientID, const QByteArray &key);
+
+    QByteArray getPublicKey(const QString &clientID) const;
+
+    QMap<QString, QByteArray> getAllPublicKeys() const;
+
+    QList<QTcpSocket*> getClients();
+
+    void lockClientMutex();
+    void unlockClientMutex();
+
+
+
 protected:
     void incomingConnection(qintptr socketDescriptor) override;
 
@@ -21,29 +37,26 @@ private slots:
 
     void handleStatusConnection();
 
-    // void handleChatMessage();
-
-
-
 signals:
     void chatMessageReceived(const QString &sender, const QString &recipient, const QString &message);
 
-
-
 private:
-    // QMap<QTcpSocket*, ServerWorker*> clientWorkers; // Mapping sockets to workers
-    QMap <QString, QString> clientsDetails;
-
-    QMap<QTcpSocket*, QString> clients;      // replace qbytearray to qstring with username
-
-    // QList<QTcpSocket*> clients;
-    QMutex clientsMutex;
-
-    void broadcastMessage(QTcpSocket* sender, const QByteArray& message);
-    // void CollectID();
 
     QString getClientID(QTcpSocket *client);
 
+    QMap<QTcpSocket*, QString> clients; // Сокет -> имя пользователя
+
+    QMap<QString, QByteArray> publicKeys; // ID клиента -> публичный ключ
+
+    QMap<QTcpSocket*, QByteArray> waitingClients;
+
+    mutable QMutex clientsMutex;
+
+    void sendKeysToClients(QTcpSocket* client);
+
+    void broadcastMessage(QTcpSocket* sender, const QByteArray& message);
+
+    void broadcastKeysIsReady();
 };
 
 #endif // SERVER_H
