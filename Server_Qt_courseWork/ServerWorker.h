@@ -6,6 +6,7 @@
 #include <QMutex>
 #include <QObject>
 #include <QTcpSocket>
+#include <QMutexLocker>
 
 class Server;
 
@@ -18,6 +19,8 @@ public:
     QByteArray getPublicKey() const {return clientPublicKey;}
 
     void sendPublicKeyToClient(const QByteArray &publicKey);
+
+    void sendAllPublicKeys();
 
     // set and get name
     void setUsername(const QString& username) {this->username = username; }
