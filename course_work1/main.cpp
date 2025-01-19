@@ -14,27 +14,19 @@ int main(int argc, char *argv[])
     ClientLogin loginWindow;
     QObject::connect(&loginWindow, &ClientLogin::usernameEntered, [&](const QString &username)
     {
-        // int socketDescriptor = ...;
-        QTcpSocket tempSocket;
-        tempSocket.connectToHost("127.0.0.1", 8001);
-        if(!tempSocket.waitForConnected(5000))
-        {
-            qWarning() << "Failed connect to server: " << tempSocket.errorString();
-            return;
-        }
-
-        int socketDescriptor = tempSocket.socketDescriptor();
-        ClientWorkerWrapper *workerWrapper = new ClientWorkerWrapper(socketDescriptor, username);
-        workerWrapper->setParent(&loginWindow);
+        ClientWorkerWrapper *workerWrapper = new ClientWorkerWrapper(username);
+        // workerWrapper->setParent(&loginWindow);
         // workerWrapper->start();
+        workerWrapper->initializeClientData(username);
 
         ClientChat *chatWindow = new ClientChat();
         chatWindow->setAttribute(Qt::WA_DeleteOnClose);
+        chatWindow->setUsername(username);
         QObject::connect(workerWrapper, &ClientWorkerWrapper::messageReceived, chatWindow, &ClientChat::displayMessage);
         QObject::connect(workerWrapper, &ClientWorkerWrapper::errorOccurred, chatWindow, &ClientChat::displayError);
         QObject::connect(chatWindow, &ClientChat::sendMessage, workerWrapper, &ClientWorkerWrapper::sendMessage);
 
-        chatWindow->setUsername(username);
+
         chatWindow->show();
         // worker->start();
     });
