@@ -5,9 +5,6 @@
 int main(int argc, char *argv[])
 {
     QCoreApplication a(argc, argv);
-
-
-
     Server server;
     if(!server.listen(QHostAddress::LocalHost, 8001))
     {
