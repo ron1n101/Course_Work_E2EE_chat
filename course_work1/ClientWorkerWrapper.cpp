@@ -3,12 +3,8 @@
 #include <QDebug>
 #include <QMutex>
 
-QMutex wrapperMutex;
-
-
-
-ClientWorkerWrapper::ClientWorkerWrapper(int socketDescriptor, const QString &username)
-    : QObject(nullptr), worker(new ClientWorker(socketDescriptor, username))
+ClientWorkerWrapper::ClientWorkerWrapper( const QString &username)
+    : QObject(nullptr), worker(new ClientWorker( username))
 {
     // Создание нового потока
     QThread *thread = new QThread(this);

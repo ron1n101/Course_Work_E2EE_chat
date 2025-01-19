@@ -3,14 +3,14 @@
 
 #include <QObject>
 #include "ClientWorker.h"
-
+#include <QMutex>
 
 
 class ClientWorkerWrapper : public QObject
 {
     Q_OBJECT
 public:
-    explicit ClientWorkerWrapper(int socketDecriptor, const QString &username);
+    explicit ClientWorkerWrapper(const QString &username);
     void sendMessage(const QString &message);
     void initializeClientData(const QString &username);
 
@@ -28,6 +28,7 @@ public slots:
 
 private:
     ClientWorker *worker;
+    QMutex wrapperMutex;
 };
 
 #endif // CLIENTWORKERWRAPPER_H
