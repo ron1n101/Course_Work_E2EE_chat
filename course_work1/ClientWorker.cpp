@@ -8,14 +8,14 @@
 
 #include "MessageType.h"
 
-QMutex workerMutex;
-MessageType messageType;
+// QMutex workerMutex;
+// MessageType messageType;
 
 using namespace CryptoPP;
 
 
-ClientWorker::ClientWorker(int socketDescriptor, const QString &username, QObject *parent)
-    : QObject(parent), socketDescriptor(socketDescriptor), username(username)
+ClientWorker::ClientWorker( const QString &username, QObject *parent)
+    : QObject(parent),  username(username)
 {
 
 }
@@ -28,19 +28,12 @@ void ClientWorker::run()
         emit errorOccurred("Username not set before running client Worker");
         return;
     }
-    socket = new QTcpSocket();
-    if(!socket->setSocketDescriptor(socketDescriptor))
-    {
-        emit errorOccurred("Failed to set socket descriptor: " + QString::number(socketDescriptor));
-        return;
-    }
-
-    qDebug() << "Socket set successfully. attempting to connect to server.";
+    socket = new QTcpSocket(this);
 
     connect(socket, &QTcpSocket::readyRead, this, &ClientWorker::handleConnection);
     connect(socket, &QTcpSocket::connected, this, &ClientWorker::onConnected);
     connect(socket, &QTcpSocket::disconnected, this, &ClientWorker::deleteLater);
-
+    connectToServer();
 
 
     if(socket->state() == QAbstractSocket::ConnectedState)
@@ -57,6 +50,7 @@ void ClientWorker::connectToServer()
     {
         qDebug() << "Attempting to connect to server...";
         socket->connectToHost("127.0.0.1", 8001);
+
     }
     else
     {
@@ -140,7 +134,7 @@ void ClientWorker::sendPublicKey()
 
         qDebug() << "Send public Key to server";
 
-        if(!socket->waitForReadyRead(10000))
+        if(!socket->waitForReadyRead(3000))
         {
             emit errorOccurred("No ACK from server for public key(timeout");
 
@@ -209,9 +203,6 @@ void ClientWorker::receivePublicKey()
 
 
 }
-
-
-
 
 QString ClientWorker::encryptMessageAES(const QString &message)
 {
@@ -309,8 +300,6 @@ QString ClientWorker::decryptRSA(const QString &cipherText, CryptoPP::RSA::Priva
 }
 
 
-
-
 void ClientWorker::handleConnection()
 {
     while (socket && socket->bytesAvailable() > 0)
@@ -352,6 +341,7 @@ void ClientWorker::handleConnection()
 
         case MessageType::PUBLIC_KEY:
             processPublicKey(payload);
+            break;
 
 
         case MessageType::DATA_MESSAGE:
@@ -364,9 +354,6 @@ void ClientWorker::handleConnection()
 
     }
 }
-
-
-
 
 
 void ClientWorker::receiveMessage()
@@ -402,9 +389,6 @@ void ClientWorker::receiveMessage()
         QByteArray encryptedAESkey = buffer.mid(0, 256);
         QByteArray iv = buffer.mid(256, AES::BLOCKSIZE);
         QByteArray encryptedMessage = buffer.mid(256 + AES::BLOCKSIZE);
-
-
-
 
         QString decryptedAESkey = decryptRSA(QString::fromUtf8(encryptedAESkey), privateKey);
         if(decryptedAESkey.isEmpty())
@@ -442,8 +426,7 @@ void ClientWorker::processPublicKey(const QByteArray &payload)
         QByteArray publicKeyBytes(publicKeySize, 0);
         in.readRawData(publicKeyBytes.data(), publicKeySize);
 
-        qDebug() << "Received public key for client:" << clientID
-                 << ", Key size:" << publicKeyBytes.size();
+        qDebug() << "Received public key for client:" << clientID << ", Key size:" << publicKeyBytes.size();
 
         try
         {

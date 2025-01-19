@@ -14,15 +14,20 @@
 #include <QAbstractSocket>
 #include "MessageType.h"
 
+
+
 #define BUFFER_SIZE 4096
 // #define USERNAME_INIT 13
 // #define USERNAME_READY 14
+
+class ClientWorkerWrapper;
+
 
 class ClientWorker : public QObject
 {
     Q_OBJECT
 public:
-    explicit ClientWorker(int socketDescriptor, const QString &username, QObject *parent = nullptr);
+    explicit ClientWorker( const QString &username, QObject *parent = nullptr);
 
     void run();
     void sendMessage(const QString &message);
@@ -68,6 +73,9 @@ private:
     QMap<QString, CryptoPP::RSA::PublicKey> receivedPublicKeys;
     void connectToServer();
     void processPublicKey(const QByteArray &payload);
+
+    QMutex workerMutex;
+
 
 };
 
