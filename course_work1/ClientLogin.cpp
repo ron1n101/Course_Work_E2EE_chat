@@ -1,7 +1,7 @@
 #include "ClientLogin.h"
 #include "ui_ClientLogin.h"
-#include "ClientWorkerWrapper.h"
 #include <QThreadPool>
+#include <QMessageBox>
 
 ClientLogin::ClientLogin(QWidget *parent)
     : QWidget{parent},
@@ -18,17 +18,17 @@ ClientLogin::~ClientLogin()
 
 void ClientLogin::on_loginButton_clicked()
 {
-    if(!workerWrapper)
+    QString username = ui->userNameLineEdit->text();
+    if(!username.isEmpty())
     {
-        QString username = ui->userNameLineEdit->text();
-        if(!username.isEmpty())
-        {
-            emit usernameEntered(username);
-            this->close();
-
-            int socketDescriptor = 0;
-            workerWrapper = new ClientWorkerWrapper(socketDescriptor, username);
-            workerWrapper->initializeClientData(username);
-        }
+        emit usernameEntered(username);
+        this->close();
+        // int socketDescriptor = 0;
+        // workerWrapper = new ClientWorkerWrapper( username);
+        // workerWrapper->initializeClientData(username);
+    }
+    else
+    {
+        QMessageBox::warning(this, "Warning", "Username cannot be empty", "Okay!");
     }
 }
