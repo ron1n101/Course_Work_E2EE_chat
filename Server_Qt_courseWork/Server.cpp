@@ -3,10 +3,15 @@
 #include <QDebug>
 #include "ServerWorker.h"
 
-Server::Server(QObject *parent) : QTcpServer(parent) {}
+Server::Server(QObject *parent) : QTcpServer(parent)
+{
+    this->setMaxPendingConnections(30);
+    qDebug() << "Server constructor called. maxPendingConnections = 30";
+}
 
 void Server::incomingConnection(qintptr socketDescriptor)
 {
+    qDebug() << "incomingConnection called with descriptor:" << socketDescriptor;
     auto *clientSocket = new QTcpSocket(this);
     if (!clientSocket->setSocketDescriptor(socketDescriptor))
     {
@@ -14,9 +19,10 @@ void Server::incomingConnection(qintptr socketDescriptor)
         clientSocket->deleteLater();
         return;
     }
+    qDebug() << "Successfully set socket descriptor. localPort = " << clientSocket->localPort() << "peerPort = " << clientSocket->peerPort();
 
 
-    auto clientID = clientSocket->peerAddress().toString();
+    auto clientID = clientSocket->peerAddress().toString() + ":" + QString::number(clientSocket->peerPort());
     {
         QMutexLocker locker(&clientsMutex);
         clients[clientSocket] = clientID; // Сохраняем сокет и его IP
@@ -25,8 +31,6 @@ void Server::incomingConnection(qintptr socketDescriptor)
     auto *worker = new ServerWorker(clientSocket, this);
     connect(worker, &ServerWorker::clientDisconnect, this, &Server::handleDisconnection);
     connect(worker, &ServerWorker::messageReceived, this, &Server::broadcastMessage);
-
-    sendKeysToClients(clientSocket);
 
     qDebug() << "Client connected:" << clientID;
 }
@@ -45,7 +49,7 @@ void Server::handleDisconnection()
     auto *client = qobject_cast<QTcpSocket*>(sender());
     if (!client) return;
 
-    QString clientID = client->peerAddress().toString();
+    QString clientID = client->peerAddress().toString() + ":" + QString::number(client->peerPort());;
     qDebug() << "Client disconnected: " << clientID;
 
     QMutexLocker locker(&clientsMutex);
@@ -67,30 +71,7 @@ void Server::broadcastMessage(QTcpSocket *sender, const QByteArray &message)
     }
 }
 
-void Server::broadcastKeysIsReady()
-{
-    QMap<QTcpSocket*, QString> clientsCopy;
-    QMap<QString, QByteArray> publicKeysCopy;
 
-    {
-        QMutexLocker locker(&clientsMutex);
-        if (clients.size() != publicKeys.size())
-        {
-            qDebug() << "Not all clients have sent their public keys yet.";
-            return;
-        }
-
-        clientsCopy = clients;
-        publicKeysCopy = publicKeys;
-    }
-
-    qDebug() << "All clients have sent their keys. Broadcasting now...";
-
-    for (QTcpSocket *client : clientsCopy.keys())
-    {
-        sendKeysToClients(client); // No mutex locking here
-    }
-}
 
 QString Server::getClientID(QTcpSocket *client)
 {
@@ -98,44 +79,7 @@ QString Server::getClientID(QTcpSocket *client)
     return clients.value(client, QString());
 }
 
-void Server::sendKeysToClients(QTcpSocket *client)
-{
-    QMutexLocker locker(&clientsMutex);
-    QString requestingClientID = clients.value(client);
-    if(requestingClientID.isEmpty())
-    {
-        qDebug() << "Could not find ID for the requesting client.";
-        return;
-    }
-    QByteArray message;
-    QDataStream out (&message, QIODevice::WriteOnly);
-    out.setByteOrder(QDataStream::LittleEndian);
-    quint32 messageLength = 0;
-    quint8 messageType = static_cast<quint8>(MessageType::PUBLIC_KEY);
-    out << messageLength << messageType;
 
-    for (auto it = publicKeys.constBegin(); it != publicKeys.constEnd(); ++it)
-    {
-        if (it.key() != requestingClientID) // Exclude the requesting client's own key
-        {
-            QByteArray clientID = it.key().toUtf8();
-            QByteArray publicKey = it.value();
-
-            out << static_cast<quint32>(clientID.size());
-            out.writeRawData(clientID.data(), clientID.size());
-
-            out << static_cast<quint32>(publicKey.size());
-            out.writeRawData(publicKey.data(), publicKey.size());
-        }
-    }
-    messageLength = message.size() - sizeof(quint32);
-    memcpy(message.data(), &messageLength, sizeof(quint32));
-
-    client->write(message);
-    client->flush();
-
-    qDebug() << "Sent public Key to client: " << requestingClientID;
-}
 
 void Server::removeClient(QTcpSocket* client)
 {
@@ -143,25 +87,17 @@ void Server::removeClient(QTcpSocket* client)
     if (clients.contains(client))
     {
         clients.remove(client); // Remove the client from the map
-        qDebug() << "Client removed successfully.";
+        qDebug() << "Client removSocketed successfully.";
     }
     client->deleteLater();
 }
 
 void Server::addPublicKey(const QString &clientID, const QByteArray &key)
 {
-
-    {
-        QMutexLocker locker(&clientsMutex);
-        publicKeys[clientID] = key;
-
-        qDebug() << "Public Key added for client:" << clientID;
-    }
-
-    broadcastKeysIsReady(); // Call without the lock
+    QMutexLocker locker(&clientsMutex);
+    publicKeys[clientID] = key;
+    qDebug() << "Public Key added for client:" << clientID;
 }
-
-
 
 
 QByteArray Server::getPublicKey(const QString &clientID) const
@@ -170,7 +106,7 @@ QByteArray Server::getPublicKey(const QString &clientID) const
     return publicKeys.value(clientID, QByteArray());
 }
 
-QMap<QString, QByteArray> Server::getAllPublicKeys() const
+QMap<QString, QByteArray> Server::getAllPublicKeys() const          // утечка памяти!!!
 {
     QMutexLocker locker(&clientsMutex);
     return publicKeys;
@@ -178,7 +114,7 @@ QMap<QString, QByteArray> Server::getAllPublicKeys() const
 
 QList<QTcpSocket *> Server::getClients()
 {
-    QMutexLocker locker(&clientsMutex);
+    // QMutexLocker locker(&clientsMutex);
     return clients.keys();
 }
 

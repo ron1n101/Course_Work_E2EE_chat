@@ -13,7 +13,6 @@ class Server : public QTcpServer
 public:
     explicit Server(QObject *parent = nullptr);
 
-
     void removeClient(QTcpSocket *client);
 
     void addPublicKey(const QString &clientID, const QByteArray &key);
@@ -52,11 +51,8 @@ private:
 
     mutable QMutex clientsMutex;
 
-    void sendKeysToClients(QTcpSocket* client);
-
     void broadcastMessage(QTcpSocket* sender, const QByteArray& message);
 
-    void broadcastKeysIsReady();
 };
 
 #endif // SERVER_H
