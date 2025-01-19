@@ -18,12 +18,9 @@ public:
 
     QByteArray getPublicKey() const {return clientPublicKey;}
 
-    void sendPublicKeyToClient(const QByteArray &publicKey);
-
-    void sendAllPublicKeys();
-
     // set and get name
     void setUsername(const QString& username) {this->username = username; }
+
     QString getUsername() const {return this->username;}
 
 signals:
@@ -38,7 +35,6 @@ private slots:
 
     void handleClientDisconnected();            // ???
 
-    // void handleReadyRead();
 
 private:
 
@@ -54,16 +50,17 @@ private:
 
     void handleDataMessage(QTcpSocket* sender, const QByteArray &payload);
 
-    // void handleUsernameReady(QTcpSocket *client, const QByteArray &payload);
-
     void handleChatMessage(const QByteArray &payload);
 
-
+    void sendAllExistingKeysToNewClient();
 
 
     QTcpSocket *clientSocket;
+
     QByteArray clientPublicKey;
+
     QString username;
+
     Server& server;
 
     QMutex clientsMutex;

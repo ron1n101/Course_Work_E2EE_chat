@@ -14,42 +14,6 @@ ServerWorker::ServerWorker(QTcpSocket *clientSocket, Server *parent): QObject(pa
 
 }
 
-void ServerWorker::sendPublicKeyToClient(const QByteArray &publicKey)
-{
-    QByteArray encodedKey = publicKey.toBase64();
-    QByteArray message;
-    QDataStream out (&message, QIODevice::WriteOnly);
-    out.setByteOrder(QDataStream::LittleEndian);
-
-    quint32 messageLength = encodedKey.size() + sizeof(quint8);
-    quint8 messageType = static_cast<quint8>(MessageType::PUBLIC_KEY);
-
-    out << messageLength;
-    out << messageType;
-    message.append(encodedKey);
-
-    clientSocket->write(message);
-    clientSocket->flush();
-    qDebug() << "Sent public Key size of: " << publicKey.size() << " after base64 encoded";
-
-}
-
-void ServerWorker::sendAllPublicKeys()
-{
-    server.lockClientMutex();
-    QMap<QString, QByteArray> allKeys = server.getAllPublicKeys();
-    server.unlockClientMutex();
-
-    for(const auto& clientID : allKeys.keys())
-    {
-        if(clientID == clientSocket->peerAddress().toString()) continue;
-        QByteArray publicKey = allKeys[clientID];
-        sendPublicKeyToClient(publicKey);
-    }
-    qDebug() << "Sent all public keys to client: " << clientSocket->peerAddress().toString();
-
-}
-
 
 
 
@@ -114,7 +78,7 @@ void ServerWorker::handleClientDisconnected()
         return;
     }
 
-    qDebug() << "Client disconnected:" << clientSocket->peerAddress().toString();
+    qDebug() << "Client disconnected:" << clientSocket->peerAddress().toString() + ":" + QString::number(clientSocket->peerPort());
     emit clientDisconnect(this);
 
     clientSocket->deleteLater();
@@ -125,7 +89,7 @@ void ServerWorker::handleClientDisconnected()
 void ServerWorker::handleUsernameInit()
 {
 
-    qDebug() << "\nReceived USERNAME_INIT from client:" << clientSocket->peerAddress().toString();
+    qDebug() << "\nReceived USERNAME_INIT from client:" << clientSocket->peerAddress().toString() + ":" + QString::number(clientSocket->peerPort());
 
     // Отправляем подтверждение клиенту, что сервер готов для получения имени пользователя
     sendAcknowledgment(static_cast<quint8>(MessageType::USERNAME_READY));
@@ -143,50 +107,72 @@ void ServerWorker::handlePublicKey(const QByteArray &payload)
     }
     qDebug() << "Received public key size:" << decodedKey.size();
 
-    QString clientID = clientSocket->peerAddress().toString();
+    QString clientID = clientSocket->peerAddress().toString() + ":" + QString::number(clientSocket->peerPort());
 
-    qDebug() << "Received public key from client:" << clientID;
+    QByteArray existingKey = server.getPublicKey(clientID);
+
+    bool isNewClient = existingKey.isEmpty();       // ключа вовсе нет
+    bool isSameKey = (!isNewClient &&  existingKey == decodedKey);   // если ключ совпадает
+    bool isChangedKey = (!isNewClient && existingKey != decodedKey);  // если ключ отличился(обновился)
+
+    if(isSameKey)
+    {
+        qDebug() << "Client " << clientID << "sent same public key again. Ignoring";
+        sendAcknowledgment(static_cast<quint8>(MessageType::PUBLIC_KEY_RECEIVED));
+        return;
+    }
+
     // Сохраняем публичный ключ клиента
     server.addPublicKey(clientID, decodedKey);
+    qDebug() << "Received and stored public key from client:" << clientID;
 
     // Отправляем подтверждение текущему клиенту
     sendAcknowledgment(static_cast<quint8>(MessageType::PUBLIC_KEY_RECEIVED));
 
-    // Получаем список других клиентов
-    QList<QTcpSocket*> otherClients;
+    // вручную формируем пакет на отправку с сигналом *нового* публичного ключа
     {
-        server.lockClientMutex();
-        for (QTcpSocket* client : server.getClients())
-        {
-            if (client != clientSocket) // Пропускаем текущего клиента
-            {
-                otherClients.append(client);
-            }
-        }
-        server.unlockClientMutex();
-    }
-
-    // Отправляем публичный ключ текущего клиента другим клиентам
-    for (QTcpSocket* client : otherClients)
-    {
-        QByteArray message;
-        QDataStream out(&message, QIODevice::WriteOnly);
+        QByteArray broadcastMessage;
+        QDataStream out (&broadcastMessage, QIODevice::WriteOnly);
         out.setByteOrder(QDataStream::LittleEndian);
 
-        quint32 messageLength = decodedKey.size() + sizeof(quint8);
+        QByteArray base64key = decodedKey.toBase64();
+        quint32 messageLength = base64key.size() + sizeof(quint8);
         quint8 messageType = static_cast<quint8>(MessageType::PUBLIC_KEY);
-        out << messageLength << messageType;
-        message.append(decodedKey);
 
-        if (client->write(message) == -1)
+        out << messageLength << messageType;
+        broadcastMessage.append(base64key);
+
+        // Получаем список других клиентов
+        QList<QTcpSocket*> otherClients;
         {
-            qDebug() << "Failed to send public key to client:" << client->peerAddress().toString();
+            server.lockClientMutex();
+            for (QTcpSocket* client : server.getClients())
+            {
+                if (client != clientSocket) // Пропускаем текущего клиента
+                {
+                    otherClients.append(client);
+                }
+            }
+            server.unlockClientMutex();
         }
-        client->flush();
+
+        // Отправляем публичный ключ текущего клиента другим клиентам
+        for (QTcpSocket* client : otherClients)
+        {
+            if (client->write(broadcastMessage) == -1)
+            {
+                qDebug() << "Failed to send public key to client:" << clientSocket->peerAddress().toString() + ":" + QString::number(clientSocket->peerPort());
+            }
+            client->flush();
+        }
+        // Логирование
+        qDebug() << "Broadcasted *new/updated* public key to all other clients.";
     }
 
-    // Логирование
-    qDebug() << "Broadcasted public key to all other clients.";
+    if(isNewClient)
+    {
+        sendAllExistingKeysToNewClient();
+    }
 }
 
 
@@ -205,6 +191,41 @@ void ServerWorker::handleChatMessage(const QByteArray &payload)
     // The payload contains the chat message to broadcast
     emit messageReceived(clientSocket, payload);
 }
+
+void ServerWorker::sendAllExistingKeysToNewClient()
+{
+    // server.lockClientMutex();
+    QMap<QString, QByteArray> allKeys = server.getAllPublicKeys();
+    // server.unlockClientMutex();
+
+    QString newClientID = clientSocket->peerAddress().toString() + ":" + QString::number(clientSocket->peerPort());
+
+    for(auto it = allKeys.constBegin(); it != allKeys.constEnd(); ++it)
+    {
+        if(it.key() == newClientID)
+        {
+            continue;
+        }
+        // const QByteArray &existingKey = it.value().to; // ???
+        QByteArray base64EncodedKey = it.value().toBase64();
+        quint32 messageLength = base64EncodedKey.size() + sizeof(quint8);
+
+        QByteArray message;
+        QDataStream out (&message, QIODevice::WriteOnly);
+        out.setByteOrder(QDataStream::LittleEndian);
+
+        quint8 messageType = static_cast<quint8>(MessageType::PUBLIC_KEY);
+
+        out << messageLength << messageType;
+        message.append(base64EncodedKey);
+
+        clientSocket->write(message);
+        clientSocket->flush();
+    }
+    qDebug() << "Sent all existing public keys to NEW client:" << newClientID;
+}
+
+
 
 
 
