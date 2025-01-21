@@ -87,7 +87,7 @@ void Server::removeClient(QTcpSocket* client)
     if (clients.contains(client))
     {
         clients.remove(client); // Remove the client from the map
-        qDebug() << "Client removSocketed successfully.";
+        qDebug() << "Client remove.";
     }
     client->deleteLater();
 }
@@ -114,7 +114,7 @@ QMap<QString, QByteArray> Server::getAllPublicKeys() const          // утеч�
 
 QList<QTcpSocket *> Server::getClients()
 {
-    // QMutexLocker locker(&clientsMutex);
+    // QMutexLocker locker(&clientsMutex);         /// ????????
     return clients.keys();
 }
 
