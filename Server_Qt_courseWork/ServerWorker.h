@@ -7,6 +7,7 @@
 #include <QObject>
 #include <QTcpSocket>
 #include <QMutexLocker>
+#include <QThread>
 
 class Server;
 
@@ -54,6 +55,7 @@ private:
 
     void sendAllExistingKeysToNewClient();
 
+    void writePublicKeyPacket(QTcpSocket *toClient, const QString &sourceClientID, const QByteArray &rawKey);   // кому отправлено, чей ключ, сам ключ
 
     QTcpSocket *clientSocket;
 
