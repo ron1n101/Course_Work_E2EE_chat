@@ -8,9 +8,6 @@
 
 #include "MessageType.h"
 
-// QMutex workerMutex;
-// MessageType messageType;
-
 using namespace CryptoPP;
 
 
@@ -153,57 +150,6 @@ void ClientWorker::sendPublicKey()
 
 
 
-
-
-
-void ClientWorker::receivePublicKey()
-{
-    if (!socket || socket->state() != QAbstractSocket::ConnectedState)
-    {
-        emit errorOccurred("Socket is not connected. Cannot receive public key");
-        return;
-    }
-
-    QDataStream in(socket);
-    in.setByteOrder(QDataStream::LittleEndian);
-
-    quint32 messageLength;
-    quint8 messageType;
-
-    // Проверяем заголовок
-    if (socket->bytesAvailable() < sizeof(quint32) + sizeof(quint8) || !socket->waitForReadyRead(3000))
-    {
-        emit errorOccurred("Failed to receive public key header within timeout.");
-        return;
-    }
-
-    in >> messageLength >> messageType;
-
-    if (messageType != static_cast<quint8>(MessageType::PUBLIC_KEY))
-    {
-        emit errorOccurred("Unexpected message type. Expected PUBLIC_KEY.");
-        return;
-    }
-
-    QByteArray keyDataBase64 = socket->read(messageLength - sizeof(quint8));
-    QByteArray keyData = QByteArray::fromBase64(keyDataBase64);
-
-    try
-    {
-        qDebug() << "Key data size: " << keyData.size();
-        StringSource source(reinterpret_cast<const byte*>(keyData.data()), keyData.size(), true);
-        otherPublicKey.Load(source);
-        qDebug() << "Received and loaded public key of size: " << keyData.size();
-    }
-    catch (const Exception &e)
-    {
-        emit errorOccurred(QString("Failed to load public key: %1").arg(e.what()));
-        return;
-    }
-
-
-}
-
 QString ClientWorker::encryptMessageAES(const QString &message)
 {
     AutoSeededRandomPool rng;
@@ -330,7 +276,6 @@ void ClientWorker::handleConnection()
         switch(messageType)
         {
         case MessageType::PUBLIC_KEY_RECEIVED:
-            // receivePublicKey();
             emit publicKeyAcknowledged();
             qDebug() << "ACK for public key received.";
             break;
