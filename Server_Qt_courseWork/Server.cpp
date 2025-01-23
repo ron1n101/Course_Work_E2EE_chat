@@ -106,7 +106,7 @@ QByteArray Server::getPublicKey(const QString &clientID) const
     return publicKeys.value(clientID, QByteArray());
 }
 
-QMap<QString, QByteArray> Server::getAllPublicKeys() const          // утечка памяти!!!
+QMap<QString, QByteArray> Server::getAllPublicKeys() const
 {
     QMutexLocker locker(&clientsMutex);
     return publicKeys;
@@ -114,7 +114,7 @@ QMap<QString, QByteArray> Server::getAllPublicKeys() const          // утеч�
 
 QList<QTcpSocket *> Server::getClients()
 {
-    // QMutexLocker locker(&clientsMutex);         /// ????????
+    QMutexLocker locker(&clientsMutex);
     return clients.keys();
 }
 
