@@ -61,14 +61,25 @@ void Server::handleDisconnection()
 void Server::broadcastMessage(QTcpSocket *sender, const QByteArray &message)
 {
     QMutexLocker locker(&clientsMutex);
+    QByteArray packet;
+    QDataStream out (&packet, QIODevice::WriteOnly);
+    out.setByteOrder(QDataStream::LittleEndian);
+
+    quint32 messageLength = message.size() + sizeof(quint8);
+    quint8 messageType = static_cast<quint8>(MessageType::DATA_MESSAGE);
+
+    out << messageLength << messageType;
+    packet.append(message);
+
     for (QTcpSocket* client : clients.keys())
     {
         if (client != sender) // Исключаем отправителя
         {
-            client->write(message);
+            client->write(packet);
             client->flush();
         }
     }
+    qDebug() << "Broadcasting message type:" << static_cast<int>(messageType);
 }
 
 
@@ -106,7 +117,7 @@ QByteArray Server::getPublicKey(const QString &clientID) const
     return publicKeys.value(clientID, QByteArray());
 }
 
-QMap<QString, QByteArray> Server::getAllPublicKeys() const          // утечка памяти!!!
+QMap<QString, QByteArray> Server::getAllPublicKeys() const
 {
     QMutexLocker locker(&clientsMutex);
     return publicKeys;
@@ -114,7 +125,7 @@ QMap<QString, QByteArray> Server::getAllPublicKeys() const          // утеч�
 
 QList<QTcpSocket *> Server::getClients()
 {
-    // QMutexLocker locker(&clientsMutex);         /// ????????
+    QMutexLocker locker(&clientsMutex);
     return clients.keys();
 }
 
