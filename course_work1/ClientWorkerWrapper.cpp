@@ -13,10 +13,10 @@ ClientWorkerWrapper::ClientWorkerWrapper( const QString &username)
     worker->moveToThread(thread);
 
     // Подключение сигналов для обработки сообщений и ошибок
-    // connect(worker, &ClientWorker::usernameAcknowledged, this, &ClientWorkerWrapper::onUsernameAcknowledged);
     connect(worker, &ClientWorker::connectionEstablished, this, &ClientWorkerWrapper::onWorkerConnected);
     connect(worker, &ClientWorker::publicKeyAcknowledged, this, &ClientWorkerWrapper::onPublicKeyAcknowledged);
     connect(worker, &ClientWorker::messageReceived, this, &ClientWorkerWrapper::messageReceived);
+    connect(this, &ClientWorkerWrapper::sendMessageRequested, worker, &ClientWorker::sendMessage, Qt::QueuedConnection);
     connect(worker, &ClientWorker::errorOccurred, this, &ClientWorkerWrapper::errorOccurred);
 
     // Запуск worker, когда поток запущен
@@ -47,18 +47,16 @@ void ClientWorkerWrapper::initializeClientData(const QString &username)
 {
     if (worker)
     {
-        // QMutexLocker locker (&wrapperMutex);
         worker->initializeClientData(username);
     }
 }
 
 
-
-void ClientWorkerWrapper::sendMessage(const QString &message)
+void ClientWorkerWrapper::sendMessage(const QString &plainText, const QMap <QString, CryptoPP::RSA::PublicKey> &recepientsID)
 {
     if (worker) {
-        qDebug() << "Sending message from worker.";
-        worker->sendMessage(message);
+        qDebug() << "Sending message from wrapper.";
+        emit sendMessageRequested(plainText, recepientsID);
     } else {
         qDebug() << "Worker is not available to send message.";
     }
