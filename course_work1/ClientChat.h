@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 #include <QString>
+#include <cryptopp/rsa.h>
 
 // QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -20,7 +21,7 @@ public:
     void setUsername(const QString &);
 
 signals:
-    void sendMessage(const QString &message);
+    void sendMessage(const QString &plainText, const QMap <QString, CryptoPP::RSA::PublicKey> &recepientsID);
 
 public slots:
     void displayMessage(const QString &sender, const QString &message);
@@ -33,5 +34,6 @@ private slots:
 private:
     Ui::ClientChat *ui;
     QString username;
+    QMap<QString, CryptoPP::RSA::PublicKey> recipientsID;
 };
 #endif // CLIENTCHAT_H
