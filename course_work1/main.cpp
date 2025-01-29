@@ -28,7 +28,6 @@ int main(int argc, char *argv[])
 
 
         chatWindow->show();
-        // worker->start();
     });
     loginWindow.show();
     return app.exec();
