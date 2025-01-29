@@ -34,7 +34,7 @@ signals:
 private slots:
     void processClient();
 
-    void handleClientDisconnected();            // ???
+    void handleClientDisconnected();
 
 
 private:
@@ -60,6 +60,8 @@ private:
     QTcpSocket *clientSocket;
 
     QByteArray clientPublicKey;
+
+    QByteArray m_buffer;
 
     QString username;
 
