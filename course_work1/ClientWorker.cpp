@@ -8,9 +8,6 @@
 
 #include "MessageType.h"
 
-// QMutex workerMutex;
-// MessageType messageType;
-
 using namespace CryptoPP;
 
 
@@ -153,57 +150,6 @@ void ClientWorker::sendPublicKey()
 
 
 
-
-
-
-void ClientWorker::receivePublicKey()
-{
-    if (!socket || socket->state() != QAbstractSocket::ConnectedState)
-    {
-        emit errorOccurred("Socket is not connected. Cannot receive public key");
-        return;
-    }
-
-    QDataStream in(socket);
-    in.setByteOrder(QDataStream::LittleEndian);
-
-    quint32 messageLength;
-    quint8 messageType;
-
-    // Проверяем заголовок
-    if (socket->bytesAvailable() < sizeof(quint32) + sizeof(quint8) || !socket->waitForReadyRead(3000))
-    {
-        emit errorOccurred("Failed to receive public key header within timeout.");
-        return;
-    }
-
-    in >> messageLength >> messageType;
-
-    if (messageType != static_cast<quint8>(MessageType::PUBLIC_KEY))
-    {
-        emit errorOccurred("Unexpected message type. Expected PUBLIC_KEY.");
-        return;
-    }
-
-    QByteArray keyDataBase64 = socket->read(messageLength - sizeof(quint8));
-    QByteArray keyData = QByteArray::fromBase64(keyDataBase64);
-
-    try
-    {
-        qDebug() << "Key data size: " << keyData.size();
-        StringSource source(reinterpret_cast<const byte*>(keyData.data()), keyData.size(), true);
-        otherPublicKey.Load(source);
-        qDebug() << "Received and loaded public key of size: " << keyData.size();
-    }
-    catch (const Exception &e)
-    {
-        emit errorOccurred(QString("Failed to load public key: %1").arg(e.what()));
-        return;
-    }
-
-
-}
-
 QString ClientWorker::encryptMessageAES(const QString &message)
 {
     AutoSeededRandomPool rng;
@@ -302,35 +248,39 @@ QString ClientWorker::decryptRSA(const QString &cipherText, CryptoPP::RSA::Priva
 
 void ClientWorker::handleConnection()
 {
-    while (socket && socket->bytesAvailable() > 0)
+    m_buffer.append(socket->readAll());
+    QDataStream in (&m_buffer, QIODevice::ReadOnly);
+    in.setByteOrder(QDataStream::LittleEndian);
+    while (true)
     {
-        QDataStream in(socket);
-        in.setByteOrder(QDataStream::LittleEndian);
 
-        if (socket->bytesAvailable() < static_cast<int>(sizeof(quint32) + sizeof(quint8)))
+        if (m_buffer.size() < static_cast<int>(sizeof(quint32) + sizeof(quint8)))
         {
-            qDebug() << "Not enough data available. waiting more...";
             return;
         }
 
         quint32 messageLength;
         quint8 messageTypeRaw;
 
-        in >> messageLength >> messageTypeRaw;
+        in >> messageLength;
+        in >> messageTypeRaw;
+
+
 
         MessageType messageType = static_cast<MessageType>(messageTypeRaw);
 
-        if(socket->bytesAvailable() < messageLength - sizeof(quint8))
+        if (m_buffer.size() < messageLength + sizeof(quint32))
         {
-            qDebug() << "Incomplete message received. Waiting for more data.";
             return;
         }
-        QByteArray payload = socket->read(messageLength - sizeof(quint8));
+
+
+        QByteArray payload = m_buffer.mid(sizeof(quint32) + sizeof(quint8), messageLength - sizeof(quint8));
+        m_buffer.remove(0, messageLength + sizeof(quint32));
 
         switch(messageType)
         {
         case MessageType::PUBLIC_KEY_RECEIVED:
-            // receivePublicKey();
             emit publicKeyAcknowledged();
             qDebug() << "ACK for public key received.";
             break;
@@ -345,66 +295,119 @@ void ClientWorker::handleConnection()
 
 
         case MessageType::DATA_MESSAGE:
-            receiveMessage();
+            receiveMessage(payload);
             break;
         default:
             qDebug() << "Unexpected message type received: " << static_cast<quint8>(MessageType::UNKNOW_MESSAGE);
             break;
         }
-
+        qDebug() << "Received message type:" << static_cast<int>(messageTypeRaw);
     }
 }
 
 
-void ClientWorker::receiveMessage()
+void ClientWorker::receiveMessage(const QByteArray &payload)
 {
     if(!socket || socket->state() != QAbstractSocket::ConnectedState)
     {
         emit errorOccurred("Socket not connected. Cannot receive message");
         return;
     }
-    while(socket->bytesAvailable() > 0)
+
+    // начинаем парсить буфер
+    QDataStream parcer(payload);
+    parcer.setByteOrder(QDataStream::LittleEndian);
+
+    // считываем подключаемых клиентов
+    quint32 numberOfRecepeints;
+    parcer >> numberOfRecepeints;
+
+
+    // проверяем попался ли нам наш блок сообщения и ключа
+    bool findMyBlock = false;
+    QByteArray myRSAencryptionKey;
+
+    for(quint32 i = 0; i < numberOfRecepeints; ++i)
     {
-        QDataStream in(socket);
-        in.setByteOrder(QDataStream::LittleEndian);
-        // collect msg size
-        int msgSize = 0;
-        in >> msgSize;
+        // читаем ClientID
+        quint32 clientIDSize;
+        parcer >> clientIDSize;
 
-        if(msgSize <= 0 || msgSize > BUFFER_SIZE)
+        QByteArray clientIDBytes(clientIDSize, 0);
+        parcer.readRawData(clientIDBytes.data(), clientIDSize);
+        QString clientID = QString::fromUtf8(clientIDBytes);
+
+        // читаем зашифрованный AES-ключ
+        quint32 encryptionKeySize;
+        parcer >> encryptionKeySize;
+
+        QByteArray encryptionKey(encryptionKeySize, 0);
+        parcer.readRawData(encryptionKey.data(), encryptionKeySize);
+
+        // если clientID это мой юзернейм, то это мой блок, просто сохраняем мой ключ и ставим флаг, что мой блок найдем
+        if(clientID == this->username)
         {
-            emit errorOccurred("Invalid message size");
-            return;
+            myRSAencryptionKey = encryptionKey;
+            findMyBlock = true;
         }
-
-        // read data msg
-        QByteArray buffer(msgSize, 0);
-        if(in.readRawData(buffer.data(), msgSize) != msgSize)
-        {
-            emit errorOccurred("Failed receive complete message data.");
-            return;
-        }
-
-        // decrypt data AES
-        QByteArray encryptedAESkey = buffer.mid(0, 256);
-        QByteArray iv = buffer.mid(256, AES::BLOCKSIZE);
-        QByteArray encryptedMessage = buffer.mid(256 + AES::BLOCKSIZE);
-
-        QString decryptedAESkey = decryptRSA(QString::fromUtf8(encryptedAESkey), privateKey);
-        if(decryptedAESkey.isEmpty())
-        {
-            emit errorOccurred("Failed to decrypt AES Key");
-            return;
-        }
-
-        QString decryptedMessage = decryptMessageAES(encryptedMessage);
-        if(decryptedMessage.isEmpty())
-        {
-            emit errorOccurred("Failed to decrypt message.");
-            return;
-        }
-        emit messageReceived("OtherClient: ", decryptedMessage) ;
     }
+
+    // читаем aes шифр и длину его
+    quint32 aesCipherSize;
+    parcer >> aesCipherSize;
+    QByteArray aesCipher(aesCipherSize, 0);
+    parcer.readRawData(aesCipher.data(), aesCipherSize);
+
+    // если мой блок не найден, то скипаем его
+    if(!findMyBlock)
+    {
+        emit errorOccurred("Didnt find my block. Ignoring");
+        return;
+    }
+
+    // расшифровываем AES ключ через приватный ключ
+    QString base64Encoded = QString::fromUtf8(myRSAencryptionKey.toBase64());
+    QString decryptedAESKey = decryptRSA(base64Encoded, privateKey);
+    if(decryptedAESKey.isEmpty())
+    {
+        emit errorOccurred(" Failed to decrypt AES Key");
+        return;
+    }
+    // конвертируем обратно в SecByteBlock
+    QByteArray aeskeyBytes = decryptedAESKey.toUtf8();
+    if(aeskeyBytes.size() != AES::DEFAULT_KEYLENGTH)
+    {
+        emit errorOccurred("Decrypted AES Key has invalid size");
+        return;
+    }
+
+    // Заполняем SecByteBlock
+    SecByteBlock ephermalAES(reinterpret_cast<const byte*>(aeskeyBytes.data()), aeskeyBytes.size());
+
+    if(aesCipher.size() < AES::BLOCKSIZE)
+    {
+        emit errorOccurred("aes cipher size to small for IV");
+        return;
+    }
+
+    QByteArray ivBA = aesCipher.left(AES::BLOCKSIZE);
+    QByteArray encryptionMessageBA = aesCipher.mid(AES::BLOCKSIZE);
+
+    std::string decryptedText;
+    try {
+        CBC_Mode<AES>::Decryption decryption;
+        decryption.SetKeyWithIV(ephermalAES, ephermalAES.size(), reinterpret_cast<const byte*>(ivBA.data(), ivBA.size()));
+
+        std::string cipherString(encryptionMessageBA.constBegin(), encryptionMessageBA.size());
+        StringSource ss(cipherString, true, new StreamTransformationFilter(decryption, new StringSink(decryptedText), StreamTransformationFilter::PKCS_PADDING));
+
+    } catch (const CryptoPP::Exception &e) {
+        emit errorOccurred(QString("AES decrypt message failed").arg(e.what()));
+        return;
+    }
+
+    QString message = QString::fromStdString(decryptedText);
+    emit messageReceived("OtherClient", message);
 
 }
 
@@ -478,34 +481,95 @@ void ClientWorker::initializeClientData(const QString &username)
         emit errorOccurred(QString::fromStdString(e.what()));
         return;
     }
-    locker.unlock();
+    // locker.unlock();
 
 }
 
 
-void ClientWorker::sendMessage(const QString &message)
+void ClientWorker::sendMessage(const QString &plainText, const QMap <QString, CryptoPP::RSA::PublicKey> &recepientsID)
 {
     if(socket && socket->state() == QAbstractSocket::ConnectedState)
     {
-        QByteArray messageData = message.toUtf8();
-        QByteArray payload;
-        QDataStream stream(&payload, QIODevice::WriteOnly);
-        stream.setByteOrder(QDataStream::LittleEndian);
+        AutoSeededRandomPool rng;
+        SecByteBlock iv(AES::BLOCKSIZE);
+        rng.GenerateBlock(iv, iv.size());
 
-        // message structure
-        stream << static_cast<quint32>(5 + messageData.size());
-        stream << static_cast<quint8>(MessageType::DATA_MESSAGE);
-        payload.append(messageData);
+        std::string plain = plainText.toStdString();
+        std::string cipherText;
+        try {
+            CBC_Mode<AES>::Encryption encryption;
+            encryption.SetKeyWithIV(aesKey, aesKey.size(), iv);
+            StringSource(plain, true,
+                new StreamTransformationFilter(encryption,
+                    new StringSink(cipherText),
+                        StreamTransformationFilter::PKCS_PADDING));
+        } catch (const Exception& e) {
+            emit errorOccurred("AES encryption failed");
+            return;
+        }
 
-        socket->write(payload);
+
+
+        QByteArray aesCipher = QByteArray::fromStdString(cipherText);
+        aesCipher.prepend(reinterpret_cast<const char*>(iv.data()),iv.size());
+
+
+        QByteArray packet;
+        QDataStream out (&packet, QIODevice::WriteOnly);
+        out.setByteOrder(QDataStream::LittleEndian);
+
+        quint32 messageLength;
+        quint8 messageType = static_cast<quint8>(MessageType::DATA_MESSAGE);
+
+        out << messageLength;
+        out << messageType;
+
+        quint32 numberOfRecepients = recepientsID.size();
+        out << numberOfRecepients;
+
+        for(auto it = recepientsID.begin(); it != recepientsID.end(); ++it)
+        {
+            QString clientID = it.key();
+            RSA::PublicKey publicKey = it.value();
+
+            qDebug() << "Sending to clientID: " << clientID << "Current username: " << this->username;
+
+            QByteArray aesKeyBytes(reinterpret_cast<const char*>(aesKey.data()), aesKey.size());
+
+            QString rsaEncryptedBase64 = encryptRSA(aesKeyBytes, publicKey);
+            QByteArray rsaEncryptedRaw = QByteArray::fromBase64(rsaEncryptedBase64.toUtf8());
+
+
+            QByteArray clientIDBytes = clientID.toUtf8();
+            quint32 clientIDSize = clientIDBytes.size();
+            quint32 encryptionKeySize = rsaEncryptedRaw.size();
+
+            out << clientIDSize;
+            out.writeRawData(clientIDBytes.constData(), clientIDSize);
+
+            out << encryptionKeySize;
+            out.writeRawData(rsaEncryptedRaw.constData(), encryptionKeySize);
+        }
+
+
+        quint32 aesCipherSize = aesCipher.size();
+        out << aesCipherSize;
+        out.writeRawData(aesCipher.constData(), aesCipherSize);
+
+
+        messageLength = packet.size() - sizeof(quint32);
+
+        memcpy(packet.data(), &messageLength, sizeof(quint32));
+
+        qint64 bytesWritten = socket->write(packet);
         socket->flush();
-    }
-    else
-    {
-        emit errorOccurred("Socket is not connected to send the message.");
+        if(bytesWritten == -1)
+        {
+            qDebug() << "Failed to send message";
+        }
+        else
+        {
+            qDebug() << "Message sent. Bytes: " << bytesWritten;
+        }
     }
 }
-
-
-
-

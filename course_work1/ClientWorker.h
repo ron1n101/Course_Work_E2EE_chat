@@ -17,8 +17,6 @@
 
 
 #define BUFFER_SIZE 4096
-// #define USERNAME_INIT 13
-// #define USERNAME_READY 14
 
 class ClientWorkerWrapper;
 
@@ -30,13 +28,9 @@ public:
     explicit ClientWorker( const QString &username, QObject *parent = nullptr);
 
     void run();
-    void sendMessage(const QString &message);
     void sendPublicKey();
-    void receivePublicKey();
-    void receiveMessage();
+    void receiveMessage(const QByteArray &payload);
 
-    // void sendUsername();
-    // void initializeClientData(const QString &username);
 
     void initializeClientData(const QString &username);
 
@@ -52,14 +46,17 @@ signals:
 
 private slots:
     void onConnected();
-    // void handleServerResponse();
 
+public slots:
+    void sendMessage(const QString &plainText, const QMap<QString, CryptoPP::RSA::PublicKey> &recipients);
 private:
     void handleConnection();
     QString encryptMessageAES(const QString &message);
     QString decryptMessageAES(const QByteArray &cipherText);
     QString encryptRSA(const QByteArray& key, const CryptoPP::RSA::PublicKey& publicKey);
     QString decryptRSA(const QString& cipherText, CryptoPP::RSA::PrivateKey& privateKey);
+
+
 
     QTcpSocket *socket;
     int socketDescriptor;
@@ -73,6 +70,7 @@ private:
     QMap<QString, CryptoPP::RSA::PublicKey> receivedPublicKeys;
     void connectToServer();
     void processPublicKey(const QByteArray &payload);
+    QByteArray m_buffer;
 
     QMutex workerMutex;
 
