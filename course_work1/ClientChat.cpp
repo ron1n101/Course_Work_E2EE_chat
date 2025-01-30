@@ -34,7 +34,7 @@ void ClientChat::on_sendButton_clicked()
     QString message = ui->messageLineEdit->text();                          // добавить в интерфейс
     if(!message.isEmpty())
     {
-        emit sendMessage(message, this->recipientsID);
+        emit sendMessage(message);
         ui->messageLineEdit->clear();                                       // добавить в интерфейс
     }
 }

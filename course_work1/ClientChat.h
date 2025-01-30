@@ -21,7 +21,7 @@ public:
     void setUsername(const QString &);
 
 signals:
-    void sendMessage(const QString &plainText, const QMap <QString, CryptoPP::RSA::PublicKey> &recepientsID);
+    void sendMessage(const QString &plainText);
 
 public slots:
     void displayMessage(const QString &sender, const QString &message);
