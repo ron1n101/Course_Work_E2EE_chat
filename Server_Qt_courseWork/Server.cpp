@@ -26,6 +26,7 @@ void Server::incomingConnection(qintptr socketDescriptor)
     {
         QMutexLocker locker(&clientsMutex);
         clients[clientSocket] = clientID; // Сохраняем сокет и его IP
+        qDebug() << "[Server] Clients count:" << clients.size();
     }
 
     auto *worker = new ServerWorker(clientSocket, this);
@@ -61,25 +62,25 @@ void Server::handleDisconnection()
 void Server::broadcastMessage(QTcpSocket *sender, const QByteArray &message)
 {
     QMutexLocker locker(&clientsMutex);
-    QByteArray packet;
-    QDataStream out (&packet, QIODevice::WriteOnly);
-    out.setByteOrder(QDataStream::LittleEndian);
+    // QByteArray packet;
+    // QDataStream out (&packet, QIODevice::WriteOnly);
+    // out.setByteOrder(QDataStream::LittleEndian);
 
-    quint32 messageLength = message.size() + sizeof(quint8);
-    quint8 messageType = static_cast<quint8>(MessageType::DATA_MESSAGE);
+    // quint32 messageLength = message.size() + sizeof(quint8);
+    // quint8 messageType = static_cast<quint8>(MessageType::DATA_MESSAGE);
 
-    out << messageLength << messageType;
-    packet.append(message);
+    // out << messageLength << messageType;
+    // packet.append(message);
 
     for (QTcpSocket* client : clients.keys())
     {
         if (client != sender) // Исключаем отправителя
         {
-            client->write(packet);
+            client->write(message);
             client->flush();
         }
     }
-    qDebug() << "Broadcasting message type:" << static_cast<int>(messageType);
+    qDebug() << "Broadcasting message size:" << message.size();
 }
 
 
