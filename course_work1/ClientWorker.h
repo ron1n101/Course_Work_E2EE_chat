@@ -16,6 +16,8 @@
 
 
 
+class Server;
+
 #define BUFFER_SIZE 4096
 
 class ClientWorkerWrapper;
@@ -30,8 +32,6 @@ public:
     void run();
     void sendPublicKey();
     void receiveMessage(const QByteArray &payload);
-
-
     void initializeClientData(const QString &username);
 
 signals:
@@ -48,7 +48,7 @@ private slots:
     void onConnected();
 
 public slots:
-    void sendMessage(const QString &plainText, const QMap<QString, CryptoPP::RSA::PublicKey> &recipients);
+    void sendMessage(const QString &plainText);
 private:
     void handleConnection();
     QString encryptMessageAES(const QString &message);
@@ -73,6 +73,8 @@ private:
     QByteArray m_buffer;
 
     QMutex workerMutex;
+
+
 
 
 };

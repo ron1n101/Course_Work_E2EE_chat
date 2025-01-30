@@ -267,9 +267,9 @@ void ClientWorker::handleConnection()
 
 
 
-        MessageType messageType = static_cast<MessageType>(messageTypeRaw);
+        // MessageType messageType = static_cast<MessageType>(messageTypeRaw);
 
-        if (m_buffer.size() < messageLength + sizeof(quint32))
+        if (m_buffer.size() < static_cast<int>(messageLength + sizeof(quint32)))
         {
             return;
         }
@@ -278,7 +278,7 @@ void ClientWorker::handleConnection()
         QByteArray payload = m_buffer.mid(sizeof(quint32) + sizeof(quint8), messageLength - sizeof(quint8));
         m_buffer.remove(0, messageLength + sizeof(quint32));
 
-        switch(messageType)
+        switch((MessageType)messageTypeRaw)
         {
         case MessageType::PUBLIC_KEY_RECEIVED:
             emit publicKeyAcknowledged();
@@ -486,10 +486,16 @@ void ClientWorker::initializeClientData(const QString &username)
 }
 
 
-void ClientWorker::sendMessage(const QString &plainText, const QMap <QString, CryptoPP::RSA::PublicKey> &recepientsID)
+void ClientWorker::sendMessage(const QString &plainText)
 {
     if(socket && socket->state() == QAbstractSocket::ConnectedState)
     {
+
+        if(receivedPublicKeys.isEmpty())
+        {
+            qDebug() << "No recipeints know. Not Sending message";
+            return;
+        }
         AutoSeededRandomPool rng;
         SecByteBlock iv(AES::BLOCKSIZE);
         rng.GenerateBlock(iv, iv.size());
@@ -510,6 +516,7 @@ void ClientWorker::sendMessage(const QString &plainText, const QMap <QString, Cr
 
 
 
+
         QByteArray aesCipher = QByteArray::fromStdString(cipherText);
         aesCipher.prepend(reinterpret_cast<const char*>(iv.data()),iv.size());
 
@@ -518,16 +525,16 @@ void ClientWorker::sendMessage(const QString &plainText, const QMap <QString, Cr
         QDataStream out (&packet, QIODevice::WriteOnly);
         out.setByteOrder(QDataStream::LittleEndian);
 
-        quint32 messageLength;
+        quint32 messageLength = 0;
         quint8 messageType = static_cast<quint8>(MessageType::DATA_MESSAGE);
 
         out << messageLength;
         out << messageType;
 
-        quint32 numberOfRecepients = recepientsID.size();
+        quint32 numberOfRecepients = receivedPublicKeys.size();
         out << numberOfRecepients;
 
-        for(auto it = recepientsID.begin(); it != recepientsID.end(); ++it)
+        for(auto it = receivedPublicKeys.begin(); it != receivedPublicKeys.end(); ++it)
         {
             QString clientID = it.key();
             RSA::PublicKey publicKey = it.value();
@@ -569,7 +576,7 @@ void ClientWorker::sendMessage(const QString &plainText, const QMap <QString, Cr
         }
         else
         {
-            qDebug() << "Message sent. Bytes: " << bytesWritten;
+            qDebug() << "Message sent. Bytes: " << bytesWritten << ", recipients: " << numberOfRecepients;
         }
     }
 }
