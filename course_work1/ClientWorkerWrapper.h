@@ -11,7 +11,7 @@ class ClientWorkerWrapper : public QObject
     Q_OBJECT
 public:
     explicit ClientWorkerWrapper(const QString &username);
-    void sendMessage(const QString &plainText, const QMap <QString, CryptoPP::RSA::PublicKey> &recepientsID);
+    void sendMessage(const QString &plainText);
     void initializeClientData(const QString &username);
 
 
@@ -19,7 +19,7 @@ public:
 signals:
     void messageReceived(const QString &sender, const QString &message);
     void errorOccurred(const QString &error);
-    void sendMessageRequested(const QString &plainText, const QMap<QString, CryptoPP::RSA::PublicKey> &recipients);
+    void sendMessageRequested(const QString &plainText);
 
 
 

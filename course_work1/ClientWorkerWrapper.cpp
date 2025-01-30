@@ -52,11 +52,11 @@ void ClientWorkerWrapper::initializeClientData(const QString &username)
 }
 
 
-void ClientWorkerWrapper::sendMessage(const QString &plainText, const QMap <QString, CryptoPP::RSA::PublicKey> &recepientsID)
+void ClientWorkerWrapper::sendMessage(const QString &plainText)
 {
     if (worker) {
         qDebug() << "Sending message from wrapper.";
-        emit sendMessageRequested(plainText, recepientsID);
+        emit sendMessageRequested(plainText);
     } else {
         qDebug() << "Worker is not available to send message.";
     }
