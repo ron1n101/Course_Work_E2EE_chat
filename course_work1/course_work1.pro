@@ -28,23 +28,6 @@ FORMS += \
 
 
 
-# # Default rules for deployment.
-# qnx: target.path = /tmp/$${TARGET}/bin
-# else: unix:!android: target.path = /opt/$${TARGET}/bin
-# !isEmpty(target.path): INSTALLS += target
-
-# win32:CONFIG(release, debug|release): LIBS += -L$$PWD/../../cryptopp/release/ -lcryptopp
-# else:win32:CONFIG(debug, debug|release): LIBS += -L$$PWD/../../cryptopp/debug/ -lcryptopp
-# else:unix: LIBS += -L$$PWD/../../cryptopp/ -lcryptopp
-
-# INCLUDEPATH += $$PWD/../../cryptopp
-# DEPENDPATH += $$PWD/../../cryptopp
-
-# unix:!macx|win32: LIBS += -L$$PWD/../../cryptopp/cryptopp/ -lcryptopp
-
-# INCLUDEPATH += $$PWD/../../cryptopp
-# DEPENDPATH += $$PWD/../../cryptopp
-
 unix:!macx|win32: LIBS += -LC:/cryptopp/cryptopp/ -lcryptopp
 
 INCLUDEPATH += C:/cryptopp
