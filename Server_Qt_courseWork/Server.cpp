@@ -59,28 +59,30 @@ void Server::handleDisconnection()
     client->deleteLater();
 }
 
-void Server::broadcastMessage(QTcpSocket *sender, const QByteArray &message)
+void Server::broadcastMessage(QTcpSocket *sender, const QByteArray &payload)
 {
     QMutexLocker locker(&clientsMutex);
-    // QByteArray packet;
-    // QDataStream out (&packet, QIODevice::WriteOnly);
-    // out.setByteOrder(QDataStream::LittleEndian);
+    quint8 messageType = static_cast<quint8>(MessageType::DATA_MESSAGE);
+    quint32 messageLength = payload.size() + sizeof(quint8);
 
-    // quint32 messageLength = message.size() + sizeof(quint8);
-    // quint8 messageType = static_cast<quint8>(MessageType::DATA_MESSAGE);
+    QByteArray packet;
+    QDataStream out (&packet, QIODevice::WriteOnly);
+    out.setByteOrder(QDataStream::LittleEndian);
 
-    // out << messageLength << messageType;
-    // packet.append(message);
+    out << messageLength;
+    out << messageType;
+
+    packet.append(payload);
 
     for (QTcpSocket* client : clients.keys())
     {
         if (client != sender) // Исключаем отправителя
         {
-            client->write(message);
+            client->write(packet);
             client->flush();
         }
     }
-    qDebug() << "Broadcasting message size:" << message.size();
+    qDebug() << "Broadcasting message size:" << packet.size();
 }
 
 
@@ -104,18 +106,18 @@ void Server::removeClient(QTcpSocket* client)
     client->deleteLater();
 }
 
-void Server::addPublicKey(const QString &clientID, const QByteArray &key)
+void Server::addPublicKey(const QString &userID, const QByteArray &key)
 {
     QMutexLocker locker(&clientsMutex);
-    publicKeys[clientID] = key;
-    qDebug() << "Public Key added for client:" << clientID;
+    publicKeys[userID] = key;
+    qDebug() << "Public Key added for client:" << userID;
 }
 
 
-QByteArray Server::getPublicKey(const QString &clientID) const
+QByteArray Server::getPublicKey(const QString &userID) const
 {
     QMutexLocker locker(&clientsMutex);
-    return publicKeys.value(clientID, QByteArray());
+    return publicKeys.value(userID, QByteArray());
 }
 
 QMap<QString, QByteArray> Server::getAllPublicKeys() const
@@ -138,6 +140,19 @@ void Server::lockClientMutex()
 void Server::unlockClientMutex()
 {
     clientsMutex.unlock();
+}
+
+void Server::setUserIDForSocket(QTcpSocket *socket, const QString &userID)
+{
+    QMutexLocker locker(&clientsMutex);
+    clients[socket] = userID;
+    qDebug() << "Assigned userID: " << userID << " to socket: " << socket;
+}
+
+QString Server::getUserIDForSocket(QTcpSocket *socket) const
+{
+    QMutexLocker locker(&clientsMutex);
+    return clients.value(socket, QString());
 }
 
 

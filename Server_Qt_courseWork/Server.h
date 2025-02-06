@@ -5,19 +5,21 @@
 #include <QTcpSocket>
 #include <QMap>
 #include <QMutex>
+#include <QUuid>
 
 class Server : public QTcpServer
 {
     Q_OBJECT
+
 
 public:
     explicit Server(QObject *parent = nullptr);
 
     void removeClient(QTcpSocket *client);
 
-    void addPublicKey(const QString &clientID, const QByteArray &key);
+    void addPublicKey(const QString &userID, const QByteArray &key);
 
-    QByteArray getPublicKey(const QString &clientID) const;
+    QByteArray getPublicKey(const QString &userID) const;
 
     QMap<QString, QByteArray> getAllPublicKeys() const;
 
@@ -26,6 +28,14 @@ public:
     void lockClientMutex();
     void unlockClientMutex();
 
+    void setUserIDForSocket(QTcpSocket* socket, const QString &userID);
+
+    QString getUserIDForSocket(QTcpSocket* socket) const;
+
+    inline QString generateUserID()
+    {
+        return QUuid::createUuid().toString(QUuid::WithoutBraces);
+    }
 
 
 protected:
@@ -51,7 +61,7 @@ private:
 
     mutable QMutex clientsMutex;
 
-    void broadcastMessage(QTcpSocket* sender, const QByteArray& message);
+    void broadcastMessage(QTcpSocket* sender, const QByteArray& payload);
 
 };
 
