@@ -38,6 +38,7 @@ signals:
     void connectionEstablished();
     void usernameAcknowledged();
     void publicKeyAcknowledged();
+    void useriDAssigned();
     void messageReceived(const QString &sender, const QString &message);
     void errorOccurred(const QString &error);
 
@@ -53,8 +54,8 @@ private:
     void handleConnection();
     QString encryptMessageAES(const QString &message);
     QString decryptMessageAES(const QByteArray &cipherText);
-    QString encryptRSA(const QByteArray& key, const CryptoPP::RSA::PublicKey& publicKey);
-    QString decryptRSA(const QString& cipherText, CryptoPP::RSA::PrivateKey& privateKey);
+    QByteArray encryptRSA(const QByteArray& key, const CryptoPP::RSA::PublicKey& publicKey);
+    QByteArray decryptRSA(const QByteArray& cipherText, CryptoPP::RSA::PrivateKey& privateKey);
 
 
 
@@ -73,7 +74,7 @@ private:
     QByteArray m_buffer;
 
     QMutex workerMutex;
-
+    QString userID;
 
 
 

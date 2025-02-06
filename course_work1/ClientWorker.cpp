@@ -131,9 +131,9 @@ void ClientWorker::sendPublicKey()
 
         qDebug() << "Send public Key to server";
 
-        if(!socket->waitForReadyRead(3000))
+        if(!socket->waitForReadyRead(5000))
         {
-            emit errorOccurred("No ACK from server for public key(timeout");
+            emit errorOccurred("No ACK from server for public key(timeout)");
 
         }
         else
@@ -207,7 +207,7 @@ QString ClientWorker::decryptMessageAES(const QByteArray &cipherText)
 }
 
 
-QString ClientWorker::encryptRSA(const QByteArray &key, const CryptoPP::RSA::PublicKey &publicKey)
+QByteArray ClientWorker::encryptRSA(const QByteArray &key, const CryptoPP::RSA::PublicKey &publicKey)
 {
     AutoSeededRandomPool rng;
     std::string cipherText;
@@ -220,29 +220,29 @@ QString ClientWorker::encryptRSA(const QByteArray &key, const CryptoPP::RSA::Pub
     catch (Exception &e)
     {
         emit errorOccurred(QString("RSA encryption error %1: ").arg(e.what()));
-        return QString();
+        return QByteArray();
     }
-    return QString::fromUtf8(QByteArray::fromStdString(cipherText).toBase64());
+    return QByteArray::fromStdString(cipherText);
 }
 
 
 
-QString ClientWorker::decryptRSA(const QString &cipherText, CryptoPP::RSA::PrivateKey &privateKey)
+QByteArray ClientWorker::decryptRSA(const QByteArray &cipherText, CryptoPP::RSA::PrivateKey &privateKey)
 {
-    QByteArray encryptedData = QByteArray::fromBase64(cipherText.toUtf8());
     std::string decryptedText;
     try
     {
         AutoSeededRandomPool rng;
         RSAES_OAEP_SHA_Decryptor decryptor(privateKey);
-        StringSource ss(reinterpret_cast<const byte*>(encryptedData.data()), encryptedData.size(), true, new PK_DecryptorFilter(rng, decryptor, new StringSink(decryptedText)));
+        StringSource ss(reinterpret_cast<const byte*>(cipherText.data()), cipherText.size(), true, new PK_DecryptorFilter(rng, decryptor, new StringSink(decryptedText)));
     }
     catch (Exception &e)
     {
         emit errorOccurred(QString("RSA decrypt failed %1: ").arg(e.what()));
-        return QString();
+        return QByteArray();
     }
-    return QString::fromStdString(decryptedText);
+
+    return QByteArray::fromStdString(decryptedText);
 }
 
 
@@ -285,14 +285,28 @@ void ClientWorker::handleConnection()
             qDebug() << "ACK for public key received.";
             break;
 
-        case MessageType::USERNAME_READY:
-            sendPublicKey();
-            break;
-
         case MessageType::PUBLIC_KEY:
             processPublicKey(payload);
             break;
 
+        case MessageType::USERID_ASIGNED:
+        {
+            QDataStream ds(payload);
+            ds.setByteOrder(QDataStream::LittleEndian);
+
+            quint32 userIDSize;
+            ds >> userIDSize;
+
+            QByteArray userIDBytes(userIDSize, 0);
+            ds.readRawData(userIDBytes.data(), userIDSize);
+
+            QString assignedID = QString::fromUtf8(userIDBytes);
+            qDebug() << "Received userID from Server: " << assignedID;
+
+            this->userID = assignedID;
+            sendPublicKey();
+            break;
+        }
 
         case MessageType::DATA_MESSAGE:
             receiveMessage(payload);
@@ -330,26 +344,29 @@ void ClientWorker::receiveMessage(const QByteArray &payload)
     for(quint32 i = 0; i < numberOfRecepeints; ++i)
     {
         // читаем ClientID
-        quint32 clientIDSize;
-        parcer >> clientIDSize;
+        quint32 userIDSize;
+        parcer >> userIDSize;
 
-        QByteArray clientIDBytes(clientIDSize, 0);
-        parcer.readRawData(clientIDBytes.data(), clientIDSize);
-        QString clientID = QString::fromUtf8(clientIDBytes);
+        QByteArray userIDBytes(userIDSize, 0);
+        parcer.readRawData(userIDBytes.data(), userIDSize);
+        QString userIDblock = QString::fromUtf8(userIDBytes);
 
         // читаем зашифрованный AES-ключ
         quint32 encryptionKeySize;
         parcer >> encryptionKeySize;
-
         QByteArray encryptionKey(encryptionKeySize, 0);
         parcer.readRawData(encryptionKey.data(), encryptionKeySize);
 
-        // если clientID это мой юзернейм, то это мой блок, просто сохраняем мой ключ и ставим флаг, что мой блок найдем
-        if(clientID == this->username)
+        // QByteArray encryptionKey(encryptionKeySize, 0);
+
+
+        // если clientID привязан к юзернейму моему, то это мой блок, просто сохраняем мой ключ и ставим флаг, что мой блок найдем
+        if(userIDblock == this->userID)          // not correct
         {
             myRSAencryptionKey = encryptionKey;
             findMyBlock = true;
         }
+
     }
 
     // читаем aes шифр и длину его
@@ -366,23 +383,21 @@ void ClientWorker::receiveMessage(const QByteArray &payload)
     }
 
     // расшифровываем AES ключ через приватный ключ
-    QString base64Encoded = QString::fromUtf8(myRSAencryptionKey.toBase64());
-    QString decryptedAESKey = decryptRSA(base64Encoded, privateKey);
+    QByteArray decryptedAESKey = decryptRSA(myRSAencryptionKey, privateKey);
     if(decryptedAESKey.isEmpty())
     {
         emit errorOccurred(" Failed to decrypt AES Key");
         return;
     }
-    // конвертируем обратно в SecByteBlock
-    QByteArray aeskeyBytes = decryptedAESKey.toUtf8();
-    if(aeskeyBytes.size() != AES::DEFAULT_KEYLENGTH)
+
+    if(decryptedAESKey.size() != AES::DEFAULT_KEYLENGTH)
     {
-        emit errorOccurred("Decrypted AES Key has invalid size");
+        emit errorOccurred("Decrypted AES Key has invalid size111");
         return;
     }
 
     // Заполняем SecByteBlock
-    SecByteBlock ephermalAES(reinterpret_cast<const byte*>(aeskeyBytes.data()), aeskeyBytes.size());
+    SecByteBlock ephermalAES(reinterpret_cast<const byte*>(decryptedAESKey.data()), decryptedAESKey.size());
 
     if(aesCipher.size() < AES::BLOCKSIZE)
     {
@@ -396,10 +411,10 @@ void ClientWorker::receiveMessage(const QByteArray &payload)
     std::string decryptedText;
     try {
         CBC_Mode<AES>::Decryption decryption;
-        decryption.SetKeyWithIV(ephermalAES, ephermalAES.size(), reinterpret_cast<const byte*>(ivBA.data(), ivBA.size()));
+        decryption.SetKeyWithIV(ephermalAES, ephermalAES.size(), reinterpret_cast<const byte*>(ivBA.data()), ivBA.size());
+        StringSource ss(reinterpret_cast<const byte*>(encryptionMessageBA.constData()), encryptionMessageBA.size(), true,
+                        new StreamTransformationFilter(decryption, new StringSink(decryptedText), StreamTransformationFilter::PKCS_PADDING));
 
-        std::string cipherString(encryptionMessageBA.constBegin(), encryptionMessageBA.size());
-        StringSource ss(cipherString, true, new StreamTransformationFilter(decryption, new StringSink(decryptedText), StreamTransformationFilter::PKCS_PADDING));
 
     } catch (const CryptoPP::Exception &e) {
         emit errorOccurred(QString("AES decrypt message failed").arg(e.what()));
@@ -407,7 +422,7 @@ void ClientWorker::receiveMessage(const QByteArray &payload)
     }
 
     QString message = QString::fromStdString(decryptedText);
-    emit messageReceived("OtherClient", message);
+    emit messageReceived(username, message);
 
 }
 
@@ -474,6 +489,8 @@ void ClientWorker::initializeClientData(const QString &username)
         std::string pubKeyStr;
         StringSink sink(pubKeyStr);
         publicKey.Save(sink);
+
+        QByteArray pubKeyBA = QByteArray::fromStdString(pubKeyStr);
         qDebug() << "RSA keys generated successfully. Public Key (base64):" << QString::fromStdString(pubKeyStr).toUtf8().toBase64();
     }
     catch(const Exception &e)
@@ -490,7 +507,6 @@ void ClientWorker::sendMessage(const QString &plainText)
 {
     if(socket && socket->state() == QAbstractSocket::ConnectedState)
     {
-
         if(receivedPublicKeys.isEmpty())
         {
             qDebug() << "No recipeints know. Not Sending message";
@@ -513,9 +529,6 @@ void ClientWorker::sendMessage(const QString &plainText)
             emit errorOccurred("AES encryption failed");
             return;
         }
-
-
-
 
         QByteArray aesCipher = QByteArray::fromStdString(cipherText);
         aesCipher.prepend(reinterpret_cast<const char*>(iv.data()),iv.size());
@@ -543,8 +556,8 @@ void ClientWorker::sendMessage(const QString &plainText)
 
             QByteArray aesKeyBytes(reinterpret_cast<const char*>(aesKey.data()), aesKey.size());
 
-            QString rsaEncryptedBase64 = encryptRSA(aesKeyBytes, publicKey);
-            QByteArray rsaEncryptedRaw = QByteArray::fromBase64(rsaEncryptedBase64.toUtf8());
+            // QString rsaEncryptedBase64 = encryptRSA(aesKeyBytes, publicKey);
+            QByteArray rsaEncryptedRaw = encryptRSA(aesKeyBytes, publicKey);
 
 
             QByteArray clientIDBytes = clientID.toUtf8();
