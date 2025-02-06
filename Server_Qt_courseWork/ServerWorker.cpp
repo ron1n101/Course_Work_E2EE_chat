@@ -91,11 +91,37 @@ void ServerWorker::handleClientDisconnected()
 
 void ServerWorker::handleUsernameInit()
 {
+    QString newUserID = server.generateUserID();
+    QByteArray packet;
+    QDataStream out(&packet, QIODevice::WriteOnly);
+    out.setByteOrder(QDataStream::LittleEndian);
 
-    qDebug() << "\nReceived USERNAME_INIT from client:" << clientSocket->peerAddress().toString() + ":" + QString::number(clientSocket->peerPort());
 
-    // Отправляем подтверждение клиенту, что сервер готов для получения имени пользователя
-    sendAcknowledgment(static_cast<quint8>(MessageType::USERNAME_READY));
+    quint32 messageLength = 0;
+    quint8 messageType = static_cast<quint8>(MessageType::USERID_ASIGNED);
+    out << messageLength;
+    out << messageType;
+
+    QByteArray userIDBytes = newUserID.toUtf8();
+    quint32 userIDSize = userIDBytes.size();
+
+    out << userIDSize;
+    out.writeRawData(userIDBytes.constData(), userIDSize);
+
+    messageLength = packet.size() - sizeof(quint32);
+    memcpy(packet.data(), &messageLength, sizeof(quint32));
+    clientSocket->write(packet);
+    clientSocket->flush();
+
+
+    qDebug() << "Generate userID: " << newUserID ;
+    server.setUserIDForSocket(clientSocket, newUserID);
+
+    // sendAcknowledgment(static_cast<quint8>(MessageType::USERID_ASIGNED));
+    // qDebug() << "\nReceived USERNAME_INIT from client:" << clientSocket->peerAddress().toString() + ":" + QString::number(clientSocket->peerPort());
+
+    // // Отправляем подтверждение клиенту, что сервер готов для получения имени пользователя
+    // sendAcknowledgment(static_cast<quint8>(MessageType::USERNAME_READY));
 }
 
 
@@ -110,9 +136,16 @@ void ServerWorker::handlePublicKey(const QByteArray &payload)
     }
     qDebug() << "Received public key size:" << decodedKey.size();
 
-    QString clientID = clientSocket->peerAddress().toString() + ":" + QString::number(clientSocket->peerPort());
+    // QString clientID = clientSocket->peerAddress().toString() + ":" + QString::number(clientSocket->peerPort());
 
-    QByteArray existingKey = server.getPublicKey(clientID);
+    QString userID = server.getUserIDForSocket(clientSocket);
+    if(userID.isEmpty())
+    {
+        qDebug() << "No userID found for this socket. Possibly no USERNAME_INIT signal";
+        return;
+    }
+
+    QByteArray existingKey = server.getPublicKey(userID);
 
     bool isNewClient = existingKey.isEmpty();                               // ключа вовсе нет
     bool isSameKey = (!isNewClient &&  existingKey == decodedKey);          // если ключ совпадает
@@ -120,14 +153,14 @@ void ServerWorker::handlePublicKey(const QByteArray &payload)
 
     if(isSameKey)
     {
-        qDebug() << "Client " << clientID << "sent same public key again. Ignoring";
+        qDebug() << "Client " << userID << "sent same public key again. Ignoring";
 
         return;
     }
 
     // Сохраняем публичный ключ клиента
-    server.addPublicKey(clientID, decodedKey);
-    qDebug() << "Received and stored public key from client:" << clientID;
+    server.addPublicKey(userID, decodedKey);
+    qDebug() << "Received and stored public key from client:" << userID;
 
     // Отправляем подтверждение текущему клиенту
     sendAcknowledgment(static_cast<quint8>(MessageType::PUBLIC_KEY_RECEIVED));
@@ -143,7 +176,7 @@ void ServerWorker::handlePublicKey(const QByteArray &payload)
 
     for(QTcpSocket* client : otherClients)
     {
-        writePublicKeyPacket(client, clientID, decodedKey);
+        writePublicKeyPacket(client, userID, decodedKey);
     }
     // Логирование
     qDebug() << "Broadcasted *new/updated* public key to all other clients.";
@@ -166,7 +199,7 @@ void ServerWorker::handleDataMessage(QTcpSocket *sender, const QByteArray &paylo
 
 void ServerWorker::handleChatMessage(const QByteArray &payload)
 {
-    qDebug() << "Handling chat message from user: " << username;
+    qDebug() << "Handling chat message from user: " << server.getUserIDForSocket(clientSocket) ;
     emit messageReceived(clientSocket, payload);
 }
 
@@ -176,26 +209,30 @@ void ServerWorker::sendAllExistingKeysToNewClient()
 {
     QMap<QString, QByteArray> allKeys = server.getAllPublicKeys();
 
-    QString newClientID = clientSocket->peerAddress().toString() + ":" + QString::number(clientSocket->peerPort());
+    QString newUserID = server.getUserIDForSocket(clientSocket);
+    if (newUserID.isEmpty())
+    {
+        return;
+    }
 
     for(auto it = allKeys.constBegin(); it != allKeys.constEnd(); ++it)
     {
-        if(it.key() == newClientID)
+        if(it.key() == newUserID)
         {
             continue;
         }
 
         writePublicKeyPacket(clientSocket, it.key(), it.value());
     }
-    qDebug() << "Sent all existing public keys to NEW client:" << newClientID;
+    qDebug() << "Sent all existing public keys to NEW client:" << newUserID;
 }
 
 
 // сборка правильной инструкции публичного ключа
-void ServerWorker::writePublicKeyPacket(QTcpSocket *client, const QString &sourceClientID, const QByteArray &rawKey)
+void ServerWorker::writePublicKeyPacket(QTcpSocket *client, const QString &userID, const QByteArray &rawKey)
 {
-    QByteArray clientIDBytes = sourceClientID.toUtf8();
-    quint32 clientIDSize = clientIDBytes.size();
+    QByteArray userIDBytes = userID.toUtf8();
+    quint32 userIDSize = userIDBytes.size();
 
     QByteArray encodedKey = rawKey;
     quint32 publicKeySize = encodedKey.size();
@@ -210,8 +247,8 @@ void ServerWorker::writePublicKeyPacket(QTcpSocket *client, const QString &sourc
     out << messageLength;
     out << messageType;
 
-    out << clientIDSize;
-    out.writeRawData(clientIDBytes.constData(), clientIDBytes.size());
+    out << userIDSize;
+    out.writeRawData(userIDBytes.constData(), userIDBytes.size());
 
     out << publicKeySize;
     out.writeRawData(encodedKey.constData(), encodedKey.size());

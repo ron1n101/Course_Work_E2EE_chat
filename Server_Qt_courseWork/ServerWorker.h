@@ -55,7 +55,7 @@ private:
 
     void sendAllExistingKeysToNewClient();
 
-    void writePublicKeyPacket(QTcpSocket *toClient, const QString &sourceClientID, const QByteArray &rawKey);   // кому отправлено, чей ключ, сам ключ
+    void writePublicKeyPacket(QTcpSocket *toClient, const QString &userID, const QByteArray &rawKey);   // кому отправлено, чей ключ, сам ключ
 
     QTcpSocket *clientSocket;
 
