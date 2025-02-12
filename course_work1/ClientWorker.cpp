@@ -4,6 +4,7 @@
 #include <QThread>
 #include <cryptopp/base64.h>
 #include <QMutexLocker>
+#include <QString>
 
 
 #include "MessageType.h"
@@ -308,6 +309,25 @@ void ClientWorker::handleConnection()
             break;
         }
 
+        case MessageType::USER_DISCONNECT:
+        {
+            QDataStream ds(payload);
+            ds.setByteOrder(QDataStream::LittleEndian);
+
+            quint32 userIDSize;
+            ds >> userIDSize;
+
+            QByteArray userIDBytes(userIDSize, 0);
+            ds.readRawData(userIDBytes.data(), userIDSize);
+            QString disconnectUserID = QString::fromUtf8(userIDBytes);
+            qDebug() << "Received USER_DISCONNECT signal for user: " << disconnectUserID;
+            receivedPublicKeys.remove(disconnectUserID);
+            break;
+        }
+
+
+
+
         case MessageType::DATA_MESSAGE:
             receiveMessage(payload);
             break;
@@ -421,8 +441,23 @@ void ClientWorker::receiveMessage(const QByteArray &payload)
         return;
     }
 
-    QString message = QString::fromStdString(decryptedText);
-    emit messageReceived(username, message);
+    QString decryptedMessage = QString::fromStdString(decryptedText);
+    QString sender;
+    QString actualMessage;
+    QStringList parts = decryptedMessage.split(": ", Qt::SkipEmptyParts);
+    if(parts.size() >= 2)
+    {
+        sender = parts.first();
+        actualMessage = parts.mid(1).join(": ");
+    }
+    else
+    {
+        sender = "Unknown";
+        actualMessage = decryptedMessage;
+    }
+
+
+    emit messageReceived(sender, actualMessage);
 
 }
 
@@ -431,39 +466,72 @@ void ClientWorker::processPublicKey(const QByteArray &payload)
     QDataStream in(payload);
     in.setByteOrder(QDataStream::LittleEndian);
 
-    while (!in.atEnd())
-    {
-        quint32 clientIDSize, publicKeySize;
-        in >> clientIDSize;
+    // while (!in.atEnd())
+    // {
+    //     quint32 clientIDSize, publicKeySize;
+    //     in >> clientIDSize;
 
-        QByteArray clientIDBytes(clientIDSize, 0);
-        in.readRawData(clientIDBytes.data(), clientIDSize);
-        QString clientID = QString::fromUtf8(clientIDBytes);
+    //     QByteArray clientIDBytes(clientIDSize, 0);
+    //     in.readRawData(clientIDBytes.data(), clientIDSize);
+    //     QString clientID = QString::fromUtf8(clientIDBytes);
 
-        in >> publicKeySize;
-        QByteArray publicKeyBytes(publicKeySize, 0);
-        in.readRawData(publicKeyBytes.data(), publicKeySize);
+    //     in >> publicKeySize;
+    //     QByteArray publicKeyBytes(publicKeySize, 0);
+    //     in.readRawData(publicKeyBytes.data(), publicKeySize);
+    //     qDebug() << "Received public key for client:" << clientID << ", Key size:" << publicKeyBytes.size();
+    //     try
+    //     {
+    //         CryptoPP::RSA::PublicKey otherClientKey;
+    //         // Properly load the key using ByteQueue
+    //         CryptoPP::ByteQueue byteQueue;
+    //         byteQueue.Put(reinterpret_cast<const byte*>(publicKeyBytes.data()), publicKeyBytes.size());
+    //         byteQueue.MessageEnd();
+    //         otherClientKey.Load(byteQueue); // Correctly call the Load method
+    //         // Store the key for later use
+    //         receivedPublicKeys[clientID] = otherClientKey;
+    //     }
+    //     catch (const CryptoPP::Exception &e)
+    //     {
+    //         qDebug() << "Failed to process public key for client:" << clientID
+    //                  << ", Error:" << e.what();
+    //     }
+    // }
 
-        qDebug() << "Received public key for client:" << clientID << ", Key size:" << publicKeyBytes.size();
 
-        try
-        {
-            CryptoPP::RSA::PublicKey otherClientKey;
+    quint32 pairCount = 0;
+    in >> pairCount;
+    qDebug() << "Received public key update. Key count:" << pairCount;
 
-            // Properly load the key using ByteQueue
-            CryptoPP::ByteQueue byteQueue;
-            byteQueue.Put(reinterpret_cast<const byte*>(publicKeyBytes.data()), publicKeyBytes.size());
-            byteQueue.MessageEnd();
-
-            otherClientKey.Load(byteQueue); // Correctly call the Load method
-
-            // Store the key for later use
-            receivedPublicKeys[clientID] = otherClientKey;
+    for (quint32 i = 0; i < pairCount; i++) {
+        quint32 idSize = 0;
+        in >> idSize;
+        QByteArray idBytes(idSize, 0);
+        if (in.readRawData(idBytes.data(), idSize) != static_cast<int>(idSize)) {
+            qDebug() << "Error reading userID for key pair" << i;
+            break;
         }
-        catch (const CryptoPP::Exception &e)
-        {
-            qDebug() << "Failed to process public key for client:" << clientID
-                     << ", Error:" << e.what();
+        QString userID = QString::fromUtf8(idBytes);
+
+        quint32 keySize = 0;
+        in >> keySize;
+        QByteArray keyBytes(keySize, 0);
+        if (in.readRawData(keyBytes.data(), keySize) != static_cast<int>(keySize)) {
+            qDebug() << "Error reading public key for user:" << userID;
+            break;
+        }
+
+        qDebug() << "Received public key for user:" << userID << ", key size:" << keyBytes.size();
+
+        try {
+            CryptoPP::RSA::PublicKey otherClientKey;
+            CryptoPP::ByteQueue byteQueue;
+            byteQueue.Put(reinterpret_cast<const byte*>(keyBytes.constData()), keyBytes.size());
+            byteQueue.MessageEnd();
+            otherClientKey.Load(byteQueue);
+            receivedPublicKeys[userID] = otherClientKey;
+        }
+        catch (const CryptoPP::Exception &e) {
+            qDebug() << "Failed to process public key for user:" << userID << ", Error:" << e.what();
         }
     }
 }
@@ -488,7 +556,7 @@ void ClientWorker::initializeClientData(const QString &username)
 
         std::string pubKeyStr;
         StringSink sink(pubKeyStr);
-        publicKey.Save(sink);
+        publicKey.DEREncode(sink);
 
         QByteArray pubKeyBA = QByteArray::fromStdString(pubKeyStr);
         qDebug() << "RSA keys generated successfully. Public Key (base64):" << QString::fromStdString(pubKeyStr).toUtf8().toBase64();
@@ -498,7 +566,7 @@ void ClientWorker::initializeClientData(const QString &username)
         emit errorOccurred(QString::fromStdString(e.what()));
         return;
     }
-    // locker.unlock();
+
 
 }
 
@@ -516,7 +584,9 @@ void ClientWorker::sendMessage(const QString &plainText)
         SecByteBlock iv(AES::BLOCKSIZE);
         rng.GenerateBlock(iv, iv.size());
 
-        std::string plain = plainText.toStdString();
+
+        QString fullMessage = QString("%1: %2").arg(this->username, plainText);
+        std::string plain = fullMessage.toStdString();
         std::string cipherText;
         try {
             CBC_Mode<AES>::Encryption encryption;

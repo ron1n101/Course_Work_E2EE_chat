@@ -40,6 +40,7 @@ signals:
     void publicKeyAcknowledged();
     void useriDAssigned();
     void messageReceived(const QString &sender, const QString &message);
+    // void messageReceived(const QString &message);
     void errorOccurred(const QString &error);
 
     void clientStatusChanged(const QString &message);
