@@ -9,6 +9,7 @@ enum class MessageType : quint8
     DATA_MESSAGE,
     PUBLIC_KEY_RECEIVED,
     USERID_ASIGNED,
+    USER_DISCONNECT,
     UNKNOW_MESSAGE
 
 };
