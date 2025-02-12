@@ -21,7 +21,18 @@ void ClientChat::setUsername(const QString &username)
 
 void ClientChat::displayMessage(const QString &sender, const QString &message)
 {
-    ui->chatTextEdit->append(QString("%1: %2").arg(sender, message));       // добавить в интерфейс
+    if(sender == this->username)
+    {
+        ui->chatTextEdit->append(QString("You: %1").arg(message));
+    }
+    else
+    {
+        ui->chatTextEdit->append(QString("%1: %2").arg(sender, message));       // добавить в интерфейс
+    }
+
+    // ui->chatTextEdit->append(QString(message));
+
+
 }
 
 void ClientChat::displayError(const QString &error)
@@ -34,6 +45,7 @@ void ClientChat::on_sendButton_clicked()
     QString message = ui->messageLineEdit->text();                          // добавить в интерфейс
     if(!message.isEmpty())
     {
+        this->displayMessage(this->username, message);
         emit sendMessage(message);
         ui->messageLineEdit->clear();                                       // добавить в интерфейс
     }

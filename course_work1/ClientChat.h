@@ -25,6 +25,7 @@ signals:
 
 public slots:
     void displayMessage(const QString &sender, const QString &message);
+
     void displayError(const QString &error);
 
 
