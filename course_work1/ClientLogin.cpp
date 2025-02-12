@@ -22,10 +22,7 @@ void ClientLogin::on_loginButton_clicked()
     if(!username.isEmpty())
     {
         emit usernameEntered(username);
-        this->close();
-        // int socketDescriptor = 0;
-        // workerWrapper = new ClientWorkerWrapper( username);
-        // workerWrapper->initializeClientData(username);
+        this->close();        
     }
     else
     {
