@@ -42,7 +42,7 @@ protected:
     void incomingConnection(qintptr socketDescriptor) override;
 
 private slots:
-    void handleDisconnection();
+    void handleDisconnection(QTcpSocket* client);
 
     void handleStatusConnection();
 

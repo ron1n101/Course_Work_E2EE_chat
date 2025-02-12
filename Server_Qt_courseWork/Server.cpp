@@ -36,6 +36,65 @@ void Server::incomingConnection(qintptr socketDescriptor)
     qDebug() << "Client connected:" << clientID;
 }
 
+void Server::handleDisconnection(QTcpSocket *client)
+{
+
+    // if(!client)
+    // {
+    //     return;
+    // }
+    // QString userID = getUserIDForSocket(client);
+    // if(!userID.isEmpty())
+    // {
+
+    //     QMutexLocker locker(&clientsMutex);
+    //     clients.remove(client);
+    //     publicKeys.remove(userID);
+    //     client->deleteLater();
+
+    //     qDebug() << "[Server]Client disconnected: " << userID;
+    // }
+
+    QByteArray packet;
+    QDataStream out (&packet, QIODevice::WriteOnly);
+    out.setByteOrder(QDataStream::LittleEndian);
+
+
+    quint8 messageType = static_cast<quint8>(MessageType::USER_DISCONNECT);
+    QString userID = getUserIDForSocket(client);
+    QByteArray userIDBytes = userID.toUtf8();
+    quint32 userIDSize = userIDBytes.size();
+
+    quint32 messageLength = sizeof(quint8) + sizeof(quint32) + userIDSize;
+    out << messageLength;
+    out << messageType;
+    out << userIDSize;
+
+    out.writeRawData(userIDBytes.constData(), userIDSize);
+
+    // broadcast all
+    {
+        QMutexLocker locker(&clientsMutex);
+        for(QTcpSocket* c1 : clients.keys())
+        {
+            if(c1 != client )
+            {
+                c1->write(packet);
+                c1->flush();
+            }
+        }
+        qDebug() << "Broadcast USER_DISCONNECT for user:" << userID;
+
+        clients.remove(client);
+        publicKeys.remove(userID);
+        client->deleteLater();
+    }
+
+
+    qDebug() << "[Server]Client disconnected: " << userID;
+
+}
+
 void Server::handleStatusConnection()
 {
     auto *client = qobject_cast<QTcpSocket*>(sender());
@@ -45,19 +104,6 @@ void Server::handleStatusConnection()
     qDebug() << "Received data from client: " << QString::fromUtf8(data);
 }
 
-void Server::handleDisconnection()
-{
-    auto *client = qobject_cast<QTcpSocket*>(sender());
-    if (!client) return;
-
-    QString clientID = client->peerAddress().toString() + ":" + QString::number(client->peerPort());;
-    qDebug() << "Client disconnected: " << clientID;
-
-    QMutexLocker locker(&clientsMutex);
-    clients.remove(client);
-
-    client->deleteLater();
-}
 
 void Server::broadcastMessage(QTcpSocket *sender, const QByteArray &payload)
 {
