@@ -25,7 +25,7 @@ public:
     QString getUsername() const {return this->username;}
 
 signals:
-    void clientDisconnect(ServerWorker *worker);
+    void clientDisconnect(QTcpSocket *clientSocket);
 
     void messageReceived(QTcpSocket *sender, const QByteArray &message);
 
@@ -36,12 +36,9 @@ private slots:
 
     void handleClientDisconnected();
 
-
 private:
 
     void sendAcknowledgment(quint8 messageType);
-
-
 
     void broadcastMessage(QTcpSocket* sender, const QByteArray& message);
 
@@ -55,7 +52,7 @@ private:
 
     void sendAllExistingKeysToNewClient();
 
-    void writePublicKeyPacket(QTcpSocket *toClient, const QString &userID, const QByteArray &rawKey);   // кому отправлено, чей ключ, сам ключ
+    void writePublicKeyPacket(QTcpSocket *client, const QMap<QString, QByteArray> &keys);   // кому отправлено, чей ключ, сам ключ
 
     QTcpSocket *clientSocket;
 

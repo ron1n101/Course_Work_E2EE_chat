@@ -80,9 +80,9 @@ void ServerWorker::handleClientDisconnected()
         qDebug() << "No client socket available to disconnect.";
         return;
     }
-
-    qDebug() << "Client disconnected:" << clientSocket->peerAddress().toString() + ":" + QString::number(clientSocket->peerPort());
-    emit clientDisconnect(this);
+    QString userID = server.getUserIDForSocket(clientSocket);
+    qDebug() << "[ServerWorker]Client disconnected:" << userID;
+    emit clientDisconnect(clientSocket);
 
     clientSocket->deleteLater();
     deleteLater();
@@ -174,9 +174,13 @@ void ServerWorker::handlePublicKey(const QByteArray &payload)
         }
     }
 
+
+    QMap<QString, QByteArray> keyUpdate;
+    keyUpdate.insert(userID, decodedKey);
+
     for(QTcpSocket* client : otherClients)
     {
-        writePublicKeyPacket(client, userID, decodedKey);
+        writePublicKeyPacket(client, keyUpdate);
     }
     // Логирование
     qDebug() << "Broadcasted *new/updated* public key to all other clients.";
@@ -215,59 +219,93 @@ void ServerWorker::sendAllExistingKeysToNewClient()
         return;
     }
 
-    for(auto it = allKeys.constBegin(); it != allKeys.constEnd(); ++it)
-    {
-        if(it.key() == newUserID)
-        {
-            continue;
-        }
 
-        writePublicKeyPacket(clientSocket, it.key(), it.value());
-    }
+    writePublicKeyPacket(clientSocket, allKeys);
     qDebug() << "Sent all existing public keys to NEW client:" << newUserID;
 }
 
 
 // сборка правильной инструкции публичного ключа
-void ServerWorker::writePublicKeyPacket(QTcpSocket *client, const QString &userID, const QByteArray &rawKey)
+void ServerWorker::writePublicKeyPacket(QTcpSocket *client, const QMap<QString, QByteArray> &keys)
 {
-    QByteArray userIDBytes = userID.toUtf8();
-    quint32 userIDSize = userIDBytes.size();
+    // QByteArray userIDBytes = userID.toUtf8();
+    // quint32 userIDSize = userIDBytes.size();
 
-    QByteArray encodedKey = rawKey;
-    quint32 publicKeySize = encodedKey.size();
+    // QByteArray encodedKey = rawKey;
+    // quint32 publicKeySize = encodedKey.size();
+
+    // QByteArray packet;
+    // QDataStream out (&packet, QIODevice::WriteOnly);
+    // out.setByteOrder(QDataStream::LittleEndian);
+
+    // quint32 messageLength;
+    // quint8 messageType = static_cast<quint8>(MessageType::PUBLIC_KEY);
+
+    // out << messageLength;
+    // out << messageType;
+
+    // out << userIDSize;
+    // out.writeRawData(userIDBytes.constData(), userIDBytes.size());
+
+    // out << publicKeySize;
+    // out.writeRawData(encodedKey.constData(), encodedKey.size());
+
+    // messageLength = packet.size() - sizeof(quint32);
+    // memcpy(packet.data(), &messageLength, sizeof(quint32));
+
+    // client->write(packet);
+    // client->flush();
 
     QByteArray packet;
     QDataStream out (&packet, QIODevice::WriteOnly);
     out.setByteOrder(QDataStream::LittleEndian);
 
-    quint32 messageLength;
+    quint32 messageLength = 0;
     quint8 messageType = static_cast<quint8>(MessageType::PUBLIC_KEY);
-
     out << messageLength;
     out << messageType;
 
-    out << userIDSize;
-    out.writeRawData(userIDBytes.constData(), userIDBytes.size());
 
-    out << publicKeySize;
-    out.writeRawData(encodedKey.constData(), encodedKey.size());
+    quint32 pairCount = 0;
+    out << pairCount;
+
+    QMapIterator<QString, QByteArray> it(keys);
+
+    while(it.hasNext())
+    {
+        it.next();
+        pairCount++;
+        QByteArray idBytes = it.key().toUtf8();
+        quint32 idSize = idBytes.size();
+        out << idSize;
+        out.writeRawData(idBytes.constData(), idBytes.size());
+
+        QByteArray keyBytes = it.value();
+        quint32 keySize = keyBytes.size();
+        out << keySize;
+        out.writeRawData(keyBytes.constData(), keyBytes.size());
+    }
+
+    QDataStream updateStream(&packet, QIODevice::ReadWrite);
+    updateStream.setByteOrder(QDataStream::LittleEndian);
+    updateStream.skipRawData(sizeof(quint32) + sizeof(quint8));
+    updateStream << pairCount;
+
 
     messageLength = packet.size() - sizeof(quint32);
-    memcpy(packet.data(), &messageLength, sizeof(quint32));
+    updateStream.device()->seek(0);
+    updateStream << messageLength;
 
+    // memcpy(packet.data(), &pairCount, sizeof(quint32));
     client->write(packet);
     client->flush();
+    qDebug() << "Sent public key update packet. Key count: " << pairCount;
 
 }
 
 
-
-
-
 void ServerWorker::sendAcknowledgment(quint8 messageType)
 {
-
     if (!clientSocket->isWritable())
     {
         qDebug() << "Socket is not writable. Waiting...";
